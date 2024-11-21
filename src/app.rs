@@ -1,6 +1,7 @@
+use crate::gui::Gui;
+use crate::rendering::wgpu::{Textures, Wgpu};
+use crate::rendering::RenderingConfiguration;
 use crate::time;
-use crate::ui::Ui;
-use crate::wgpu_context::WgpuContext;
 use cfg_if::cfg_if;
 use std::cell::{Ref, RefCell, RefMut};
 use std::sync::Arc;
@@ -10,34 +11,21 @@ use winit::event_loop::ActiveEventLoop;
 cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
         use wasm_bindgen::prelude::*;
-    } else {
-
     }
 }
 
+#[derive(Default)]
 pub struct App {
+    last_frame_time: Option<time::Instant>,
     // 必须使用 Arc ，因为 wgpu::Instance::create_surface 要求实现 Send 和 Sync
     window: Option<Arc<winit::window::Window>>,
-    wgpu_context: Option<RefCell<WgpuContext>>,
-    last_frame_time: time::Instant,
-    ui: Option<RefCell<Ui>>,
+    wgpu: Option<RefCell<Wgpu>>,
     #[cfg(target_arch = "wasm32")]
-    wgpu_context_receiver: Option<futures::channel::oneshot::Receiver<WgpuContext>>,
+    wgpu_context_receiver: Option<futures::channel::oneshot::Receiver<Wgpu>>,
+    textures: Option<RefCell<Textures>>,
+    rendering_configuration: RenderingConfiguration,
+    gui: Option<RefCell<Gui>>,
 }
-
-impl Default for App {
-    fn default() -> Self {
-        Self {
-            window: None,
-            wgpu_context: None,
-            ui: None,
-            last_frame_time: time::Instant::now(),
-            #[cfg(target_arch = "wasm32")]
-            wgpu_context_receiver: None,
-        }
-    }
-}
-
 
 impl App {
     pub fn run() {
@@ -57,63 +45,16 @@ impl App {
         event_loop.run_app(&mut app).expect("panic");
     }
 
-    fn try_receive(&mut self) -> bool {
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut receive_success = false;
-            if let Some(receiver) = self.wgpu_context_receiver.as_mut() {
-                if let Ok(Some(wgpu_context)) = receiver.try_recv() {
-                    self.ui = Some(RefCell::new(Ui::new(
-                        self.window().as_ref(),
-                        &wgpu_context.device,
-                        wgpu_context.surface_configuration.format,
-                        false,
-                    )));
-                    self.wgpu_context = Some(RefCell::new(wgpu_context));
-                    receive_success = true;
-                }
-            }
-
-            if receive_success {
-                self.wgpu_context_receiver = None;
-            }
-        }
-
-        self.wgpu_context.is_some()
-    }
-
-    #[allow(dead_code)]
-    fn ui(&self) -> Ref<'_, Ui> {
-        self.ui.as_ref().unwrap().borrow()
-    }
-
-    fn ui_mut(&self) -> RefMut<'_, Ui> {
-        self.ui.as_ref().unwrap().borrow_mut()
-    }
-
-    fn window(&self) -> Arc<winit::window::Window> {
-        self.window.as_ref().unwrap().clone()
-    }
-
-    fn wgpu(&self) -> Ref<'_, WgpuContext> {
-        self.wgpu_context.as_ref().unwrap().borrow()
-    }
-
-    fn wgpu_mut(&self) -> RefMut<'_, WgpuContext> {
-        self.wgpu_context.as_ref().unwrap().borrow_mut()
-    }
-
     fn resize(&mut self, size: &winit::dpi::PhysicalSize<u32>) {
-        self.wgpu_mut().resize(size, self.window());
+        self.wgpu_mut().on_resize(size);
+        self.rendering_context_mut().on_resize(size, self.wgpu());
     }
 
-    fn render_update(&mut self) {
-        let delta_time = self.last_frame_time.elapsed();
+    fn update(&mut self) {
+        let delta_time = self.update_delta_time();
         let window = self.window();
 
-        self.ui_mut().render_update(window, delta_time);
-
-        self.last_frame_time = time::Instant::now();
+        self.ui_mut().update(window, delta_time);
     }
 
     fn render(&mut self) {
@@ -124,19 +65,38 @@ impl App {
                 return;
             }
         };
-        let surface_view =
-            surface_texture.texture.create_view(&wgpu::TextureViewDescriptor {
-                label: wgpu::Label::default(),
-                aspect: wgpu::TextureAspect::default(),
-                format: Some(self.wgpu().surface_configuration.format),
-                dimension: None,
-                base_mip_level: 0,
-                mip_level_count: None,
-                base_array_layer: 0,
-                array_layer_count: None,
+
+        let surface_view = surface_texture.texture.create_view(&Default::default());
+
+        let mut encoder = self
+            .wgpu()
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
             });
 
-        self.ui_mut().render(self.wgpu(), &surface_texture, &surface_view);
+        if self.rendering_configuration.msaa {
+            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self
+                        .rendering_context_mut()
+                        .create_multisampled_texture_view(&surface_texture, self.wgpu()),
+                    resolve_target: Some(&surface_view),
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                label: Some("egui main render pass"),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            drop(render_pass);
+        }
+
+        self.ui_mut().render(self.wgpu(), &surface_view);
 
         surface_texture.present();
     }
@@ -154,32 +114,33 @@ impl winit::application::ApplicationHandler for App {
 
                 let mut width = 0;
                 let mut height = 0;
-                let mut device_pixel_ratio = 1.0;
-                let canvas = web_sys::window().and_then(|win| {
-                    device_pixel_ratio = win.device_pixel_ratio();
-                    width = (win.inner_width().unwrap().as_f64().unwrap() * device_pixel_ratio) as u32;
-                    height = (win.inner_height().unwrap().as_f64().unwrap() * device_pixel_ratio) as u32;
-                    win.document()
-                })
-                    .and_then(|doc|
-                        {
-                            let canvas = doc
+                let canvas = web_sys::window().and_then(|window| {
+                    let device_pixel_ratio = window.device_pixel_ratio();
+                    let window_width = window.inner_width().unwrap().as_f64().unwrap();
+                    let window_height = window.inner_height().unwrap().as_f64().unwrap();
+                    width = (window_width * device_pixel_ratio) as u32;
+                    height = (window_height * device_pixel_ratio) as u32;
+                    window.document()
+                }).and_then(|document|                            {
+                            let canvas = document
                                 .create_element("canvas").unwrap()
                                 .dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
                             canvas.set_id("canvas");
-                            doc.body().unwrap().append_child(&canvas).expect("panic");
+                            document.body().unwrap().append_child(&canvas).expect("panic");
 
                             Some(canvas)
                         }
                     );
 
-                attributes = attributes.with_canvas(canvas).with_inner_size(winit::dpi::PhysicalSize::new(width, height));
+                attributes = attributes
+                    .with_canvas(canvas)
+                    .with_inner_size(winit::dpi::PhysicalSize::new(width, height));
             } else {
                 let width = 1280;
                 let height = 720;
                 let version = env!("CARGO_PKG_VERSION");
                 attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(width, height))
-                                       .with_title(&format!("renderer {version}"));
+                                       .with_title(format!("renderer {version}"));
             }
         }
 
@@ -194,31 +155,31 @@ impl winit::application::ApplicationHandler for App {
                     futures::channel::oneshot::channel();
                     self.wgpu_context_receiver = Some(receiver);
                     wasm_bindgen_futures::spawn_local(async move {
-                        let renderer = WgpuContext::new(window.clone()).await;
+                        let renderer = Wgpu::new(window.clone()).await;
                         if sender.send(renderer).is_err() {
                             log::error!("Failed to create and send renderer!");
                         }
                     });
                 } else {
-                    let wgpu_context = pollster::block_on(WgpuContext::new(window.clone()));
-                    self.ui = Some(RefCell::new(Ui::new(
-                        window.as_ref(), &wgpu_context.device, wgpu_context.surface_configuration.format, false)));
-                    self.wgpu_context = Some(RefCell::new(wgpu_context));
+                    let wgpu_context = pollster::block_on(Wgpu::new(window.clone()));
+                    self.gui = Some(RefCell::new(Gui::new(
+                        window.as_ref(),
+                        &wgpu_context.device,
+                        wgpu_context.surface_configuration.format)
+                    ));
+                    self.wgpu = Some(RefCell::new(wgpu_context));
+                    self.textures = Some(RefCell::new(Textures::new(
+                        window, self.wgpu()
+                    )));
+
                 }
             }
         }
-
-        self.last_frame_time = time::Instant::now();
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {}
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: winit::window::WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: winit::window::WindowId, event: WindowEvent) {
         if !self.try_receive() {
             return;
         }
@@ -231,7 +192,9 @@ impl winit::application::ApplicationHandler for App {
 
             match &event {
                 WindowEvent::ActivationTokenDone { .. } => {}
-                WindowEvent::Resized(size) => { self.resize(&size); }
+                WindowEvent::Resized(size) => {
+                    self.resize(size);
+                }
                 WindowEvent::Moved(_) => {}
                 WindowEvent::CloseRequested => {
                     event_loop.exit();
@@ -242,10 +205,11 @@ impl winit::application::ApplicationHandler for App {
                 WindowEvent::HoveredFileCancelled => {}
                 WindowEvent::Focused(_) => {}
                 WindowEvent::KeyboardInput {
-                    event: winit::event::KeyEvent {
-                        physical_key: winit::keyboard::PhysicalKey::Code(key_code),
-                        ..
-                    },
+                    event:
+                        winit::event::KeyEvent {
+                            physical_key: winit::keyboard::PhysicalKey::Code(key_code),
+                            ..
+                        },
                     ..
                 } => {
                     // Exit by pressing the escape key
@@ -271,7 +235,7 @@ impl winit::application::ApplicationHandler for App {
                 WindowEvent::ThemeChanged(_) => {}
                 WindowEvent::Occluded(_) => {}
                 WindowEvent::RedrawRequested => {
-                    self.render_update();
+                    self.update();
                     self.render();
                     self.window().request_redraw();
                 }
@@ -302,4 +266,65 @@ impl winit::application::ApplicationHandler for App {
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {}
 
     fn memory_warning(&mut self, _event_loop: &ActiveEventLoop) {}
+}
+
+impl App {
+    fn try_receive(&mut self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut receive_success = false;
+            if let Some(receiver) = self.wgpu_context_receiver.as_mut() {
+                if let Ok(Some(wgpu_context)) = receiver.try_recv() {
+                    self.gui = Some(RefCell::new(Gui::new(
+                        self.window().as_ref(),
+                        &wgpu_context.device,
+                        wgpu_context.surface_configuration.format,
+                    )));
+                    self.wgpu = Some(RefCell::new(wgpu_context));
+                    self.textures = Some(RefCell::new(Textures::new(self.window(), self.wgpu())));
+
+                    receive_success = true;
+                }
+            }
+
+            if receive_success {
+                self.wgpu_context_receiver = None;
+            }
+        }
+
+        self.wgpu.is_some()
+    }
+
+    fn update_delta_time(&mut self) -> time::Duration {
+        let now = time::Instant::now();
+        let delta_time = match &self.last_frame_time {
+            None => time::Duration::from_secs(0),
+            Some(last_frame_time) => now - *last_frame_time,
+        };
+        self.last_frame_time = Some(now);
+
+        delta_time
+    }
+
+    fn window(&self) -> Arc<winit::window::Window> {
+        self.window.as_ref().unwrap().clone()
+    }
+    // fn ui(&self) -> Ref<'_, Gui> {
+    //     self.gui.as_ref().unwrap().borrow()
+    // }
+    fn ui_mut(&self) -> RefMut<'_, Gui> {
+        self.gui.as_ref().unwrap().borrow_mut()
+    }
+    fn wgpu(&self) -> Ref<'_, Wgpu> {
+        self.wgpu.as_ref().unwrap().borrow()
+    }
+    fn wgpu_mut(&self) -> RefMut<'_, Wgpu> {
+        self.wgpu.as_ref().unwrap().borrow_mut()
+    }
+    // fn rendering_context(&self) -> Ref<'_, Textures> {
+    //     self.textures.as_ref().unwrap().borrow()
+    // }
+    fn rendering_context_mut(&self) -> RefMut<'_, Textures> {
+        self.textures.as_ref().unwrap().borrow_mut()
+    }
 }
