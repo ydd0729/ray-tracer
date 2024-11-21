@@ -1,0 +1,17 @@
+appenders:
+  stdout:
+    kind: console
+
+  file:
+    kind: file
+    path: "log/latest.log"
+    append: false
+
+root:
+  level: warn
+  appenders:
+    - stdout
+    - file
+loggers:
+  renderer_core:
+    level: info

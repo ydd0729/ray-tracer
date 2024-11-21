@@ -1,5 +1,6 @@
+use log::info;
 use std::sync::Arc;
-use wgpu::{Device, TextureView};
+use wgpu::{Device, Dx12Compiler, Features, Gles3MinorVersion, Limits, MemoryHints, TextureView};
 use winit::window::Window;
 
 pub(crate) struct WgpuContext {
@@ -18,8 +19,8 @@ impl WgpuContext {
         let instance_descriptor = wgpu::InstanceDescriptor {
             backends: wgpu::util::backend_bits_from_env().unwrap_or_else(|| wgpu::Backends::PRIMARY),
             flags: instance_flags,
-            dx12_shader_compiler: Default::default(),
-            gles_minor_version: Default::default(),
+            dx12_shader_compiler: Dx12Compiler::default(),
+            gles_minor_version: Gles3MinorVersion::Automatic,
         };
         let instance = wgpu::Instance::new(instance_descriptor);
         let surface = instance.create_surface(window.clone()).unwrap();
@@ -32,14 +33,17 @@ impl WgpuContext {
         let adapter = instance.request_adapter(&request_adapter_options)
             .await.expect("Failed to request adapter!");
 
+        info!("{:?}", adapter.get_info());
+
         let device_descriptor = wgpu::DeviceDescriptor {
             label: wgpu::Label::from("default device"),
-            required_features: Default::default(),
-            required_limits: Default::default(),
-            memory_hints: Default::default(),
+            required_features: Features::empty(),
+            required_limits: Limits::default(),
+            memory_hints: MemoryHints::default(),
         };
         let (device, queue) = adapter.request_device(&device_descriptor, None)
             .await.expect("Failed to request a device!");
+
 
         #[cfg(target_arch = "wasm32")]
         {

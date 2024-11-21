@@ -9,7 +9,6 @@ use winit::event_loop::ActiveEventLoop;
 
 cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
-        use winit::dpi::PhysicalSize;
         use wasm_bindgen::prelude::*;
     } else {
 
@@ -47,7 +46,7 @@ impl App {
                 std::panic::set_hook(Box::new(console_error_panic_hook::hook));
                 console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
             } else {
-                env_logger::init();
+                log4rs::init_file("log4rs.yml", Default::default()).unwrap();
             }
         }
 
@@ -174,7 +173,7 @@ impl winit::application::ApplicationHandler for App {
                         }
                     );
 
-                attributes = attributes.with_canvas(canvas).with_inner_size(PhysicalSize::new(width, height));
+                attributes = attributes.with_canvas(canvas).with_inner_size(winit::dpi::PhysicalSize::new(width, height));
             } else {
                 let width = 1280;
                 let height = 720;
