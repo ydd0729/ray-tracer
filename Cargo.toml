@@ -4,54 +4,49 @@ version = "0.1.0"
 edition = "2021"
 resolver = "2"
 
-#[lib]
-## These lines tell Cargo that we want to allow our crate to build a native Rust static library (rlib)
-## and a C/C++ compatible library (cdylib). We need rlib if we want to run wgpu in a desktop environment.
-## We need cdylib to create the Web Assembly that the browser will run.
-#crate-type = ["cdylib", "rlib"]
-#
-#[[bin]]
-#name = "renderer"
-#path = "src/main.rs"
+[lib]
+# These lines tell Cargo that we want to allow our crate to build a native Rust static library (rlib)
+# and a C/C++ compatible library (cdylib). We need rlib if we want to run wgpu in a desktop environment.
+# We need cdylib to create the Web Assembly that the browser will run.
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+name = "renderer_core"
 
-#[build]
-#target = "wasm32-unknown-unknown"
-
+# shared dependencies
 [dependencies]
-winit = { version = "0.30", features = ["rwh_06"] }
-wgpu = "23.0.0"
-imgui = "0.12"
-imgui-winit-support = "0.13"
-imgui-wgpu = { git = "https://github.com/ydd0729/imgui-wgpu-rs", rev = "3dd442e" }
-#imgui-wgpu = "0.24"
-pollster = "0.4"
-bytemuck = { version = "1.19", features = ["derive"] }
+bytemuck = { version = "1.20", features = ["derive"] }
+cfg-if = "1"
+egui = "0.29"
+egui-winit = { version = "0.29", default-features = false }
+egui_wgpu_backend = { git = "https://github.com/hasenbanck/egui_wgpu_backend", rev = "e34ace6" }
+env_logger = "0.11"
+futures = "0.3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+log = "0.4"
 nalgebra = { version = "0.33", features = ["bytemuck"] }
-#cfg-if = "1.0"
-#env_logger = "0.11"
+wgpu = "23.0"
+winit = { version = "0.30", features = ["rwh_06"] }
 
-#[dependencies.image]
-#version = "0.25.5"
-#default-features = false
-#features = ["png", "jpeg"]
-#
-## only include these dependencies if we are targeting the wasm32 architecture
-#[target.'cfg(target_arch = "wasm32")'.dependencies]
-#
-## configures the panic! macro to send errors to the javascript console.
-#console_error_panic_hook = "0.1.7"
-#
-## implements the log (opens new window)API. It sends all logs to the javascript console.
-#console_log = "1.0"
-#wasm-bindgen = "0.2"
-#
-## generating the boilerplate code that will tell the browser how to use our crate
-#wasm-bindgen-futures = "0.4.43"
-#
-## a crate with many methods and structures available in a normal javascript application:
-## get_element_by_id, append_child.
-#web-sys = { version = "0.3", features = ["Document", "Window", "Element", "Location"] }
-#
-#reqwest = { version = "0.12.9" }
-#getrandom = { version = "*", features = ["js"] }
-#log = "0.4"
+# non-wasm32 dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "0.4.0"
+
+# wasm32 dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+console_log = "1.0.0"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "HtmlElement",
+    "Node",
+    "Text",
+    "Element",
+    "Location"
+] }
+web-time = "1.1"
+reqwest = { version = "0.12.9" }
+getrandom = { version = "*", features = ["js"] }
+log = "0.4"

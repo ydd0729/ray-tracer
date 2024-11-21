@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1" name="viewport"/>
+    <title>Renderer</title>
+    <base data-trunk-public-url/>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            height: 100%;
+            width: 100%;
+        }
+
+        canvas {
+            display: flex;
+            background: black;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body id="root">
+<link data-bin="renderer" data-trunk href="Cargo.toml" rel="rust"/>
+</body>
+</html>
