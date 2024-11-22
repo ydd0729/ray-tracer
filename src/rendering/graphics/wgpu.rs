@@ -1,8 +1,14 @@
+mod buffer;
+mod render_pass;
 pub mod textures;
+
+pub use buffer::*;
+pub use render_pass::*;
+// pub use textures::*;
 
 use log::info;
 use std::sync::Arc;
-pub use textures::*;
+use wgpu::TextureFormat::Rgba8Unorm;
 use wgpu::*;
 
 pub struct Wgpu {
@@ -82,9 +88,13 @@ impl Wgpu {
         }
 
         let physical_size = window.inner_size();
-        let surface_configuration = surface
+        let mut surface_configuration = surface
             .get_default_config(&adapter, physical_size.width, physical_size.height)
             .unwrap();
+
+        surface_configuration.format = Rgba8Unorm;
+        info!("{:?}", surface_configuration);
+
         surface.configure(&device, &surface_configuration);
 
         Self {
