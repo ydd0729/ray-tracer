@@ -2,7 +2,8 @@ use crate::gui::state::GuiState;
 use crate::rendering::wgpu::Wgpu;
 use crate::time;
 use crate::{FONT_SOURCE_HANS_SANS_CN_MEDIUM, FONT_SOURCE_HANS_SANS_CN_MEDIUM_NAME};
-use egui::{ClippedPrimitive, FontData, FontDefinitions, FontFamily, TexturesDelta, Ui};
+use egui::TextStyle::{Body, Heading};
+use egui::{ClippedPrimitive, FontData, FontDefinitions, FontFamily, Rounding, Shadow, TexturesDelta, Ui};
 use egui_winit::EventResponse;
 use std::cell::Ref;
 use std::sync::Arc;
@@ -41,6 +42,22 @@ impl EguiRenderer {
         gui_context.set_pixels_per_point(1.0);
         gui_context.set_fonts(fonts);
 
+        // let text_styles: BTreeMap<_, _> = [
+        //     (Heading, FontId::new(12.0, Proportional)),
+        //     // (Name("Heading2".into()), FontId::new(25.0, Proportional)),
+        //     // (Name("Context".into()), FontId::new(23.0, Proportional)),
+        //     // (Body, FontId::new(18.0, Proportional)),
+        //     // (Monospace, FontId::new(14.0, Proportional)),
+        //     // (Button, FontId::new(14.0, Proportional)),
+        //     // (Small, FontId::new(10.0, Proportional)),
+        // ]
+        // .into();
+        gui_context.all_styles_mut(move |style| {
+            let body_style = style.text_styles.get(&Body).unwrap().clone();
+            let heading_style = style.text_styles.get_mut(&Heading).unwrap();
+            heading_style.size = body_style.size;
+        });
+
         let viewport_id = gui_context.viewport_id();
         let egui_state = egui_winit::State::new(
             gui_context,
@@ -68,7 +85,14 @@ impl EguiRenderer {
         let gui_input = self.egui_state.take_egui_input(window.as_ref());
         self.egui_state.egui_ctx().begin_pass(gui_input);
 
-        egui::Window::new("Settings 设置").show(self.egui_state.egui_ctx(), |ui| Self::build_ui(ui, gui_state));
+        self.egui_state.egui_ctx().set_visuals(egui::Visuals {
+            window_shadow: Shadow::NONE,
+            window_rounding: Rounding::same(8.0),
+            ..Default::default()
+        });
+
+        let gui_window = egui::Window::new("Settings");
+        gui_window.show(self.egui_state.egui_ctx(), |ui| Self::build_ui(ui, gui_state));
 
         let egui::FullOutput {
             textures_delta,
