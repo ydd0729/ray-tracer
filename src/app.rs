@@ -1,6 +1,8 @@
+mod renderer;
+
+use crate::app::renderer::Renderer;
 use crate::gui::Gui;
-use crate::rendering::wgpu::{Textures, Wgpu};
-use crate::rendering::RenderingConfiguration;
+use crate::rendering::wgpu::Wgpu;
 use crate::time;
 use cfg_if::cfg_if;
 use std::cell::{Ref, RefCell, RefMut};
@@ -19,12 +21,13 @@ pub struct App {
     last_frame_time: Option<time::Instant>,
     // 必须使用 Arc ，因为 wgpu::Instance::create_surface 要求实现 Send 和 Sync
     window: Option<Arc<winit::window::Window>>,
+
+    gui: Option<RefCell<Gui>>,
+
     wgpu: Option<RefCell<Wgpu>>,
     #[cfg(target_arch = "wasm32")]
     wgpu_context_receiver: Option<futures::channel::oneshot::Receiver<Wgpu>>,
-    textures: Option<RefCell<Textures>>,
-    rendering_configuration: RenderingConfiguration,
-    gui: Option<RefCell<Gui>>,
+    renderer: Option<Renderer>,
 }
 
 impl App {
@@ -47,7 +50,7 @@ impl App {
 
     fn resize(&mut self, size: &winit::dpi::PhysicalSize<u32>) {
         self.wgpu_mut().on_resize(size);
-        self.rendering_context_mut().on_resize(size, self.wgpu());
+        // self.textures_mut().on_resize(size, self.wgpu());
     }
 
     fn update(&mut self) {
@@ -75,26 +78,9 @@ impl App {
                 label: Some("Render Encoder"),
             });
 
-        if self.rendering_configuration.msaa {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self
-                        .rendering_context_mut()
-                        .create_multisampled_texture_view(&surface_texture, self.wgpu()),
-                    resolve_target: Some(&surface_view),
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                label: Some("egui main render pass"),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+        self.renderer.as_ref().unwrap().render(&surface_view, &mut encoder);
 
-            drop(render_pass);
-        }
+        self.wgpu().queue.submit(Some(encoder.finish()));
 
         self.ui_mut().render(self.wgpu(), &surface_view);
 
@@ -168,9 +154,7 @@ impl winit::application::ApplicationHandler for App {
                         wgpu_context.surface_configuration.format)
                     ));
                     self.wgpu = Some(RefCell::new(wgpu_context));
-                    self.textures = Some(RefCell::new(Textures::new(
-                        window, self.wgpu()
-                    )));
+                    self.on_wgpu_received();
 
                 }
             }
@@ -180,7 +164,7 @@ impl winit::application::ApplicationHandler for App {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {}
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: winit::window::WindowId, event: WindowEvent) {
-        if !self.try_receive() {
+        if !self.try_receive_wgpu() {
             return;
         }
 
@@ -257,7 +241,7 @@ impl winit::application::ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        self.try_receive();
+        self.try_receive_wgpu();
         self.window().request_redraw();
     }
 
@@ -269,7 +253,7 @@ impl winit::application::ApplicationHandler for App {
 }
 
 impl App {
-    fn try_receive(&mut self) -> bool {
+    fn try_receive_wgpu(&mut self) -> bool {
         #[cfg(target_arch = "wasm32")]
         {
             let mut receive_success = false;
@@ -281,7 +265,7 @@ impl App {
                         wgpu_context.surface_configuration.format,
                     )));
                     self.wgpu = Some(RefCell::new(wgpu_context));
-                    self.textures = Some(RefCell::new(Textures::new(self.window(), self.wgpu())));
+                    self.on_wgpu_received();
 
                     receive_success = true;
                 }
@@ -293,6 +277,11 @@ impl App {
         }
 
         self.wgpu.is_some()
+    }
+
+    fn on_wgpu_received(&mut self) {
+        // self.textures = Some(RefCell::new(WgpuTextures::new(self.window(), self.wgpu())));
+        self.renderer = Some(Renderer::new(self.wgpu()));
     }
 
     fn update_delta_time(&mut self) -> time::Duration {
@@ -324,7 +313,7 @@ impl App {
     // fn rendering_context(&self) -> Ref<'_, Textures> {
     //     self.textures.as_ref().unwrap().borrow()
     // }
-    fn rendering_context_mut(&self) -> RefMut<'_, Textures> {
-        self.textures.as_ref().unwrap().borrow_mut()
-    }
+    // fn textures_mut(&self) -> RefMut<'_, WgpuTextures> {
+    //     self.textures.as_ref().unwrap().borrow_mut()
+    // }
 }
