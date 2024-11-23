@@ -1,9 +1,12 @@
+mod bind_group;
 mod buffer;
-mod render_pass;
-pub mod textures;
+mod pass;
+mod texture;
 
+pub use bind_group::*;
 pub use buffer::*;
-pub use render_pass::*;
+pub use pass::compute_pass::*;
+pub use pass::render_pass::*;
 // pub use textures::*;
 
 use log::info;
@@ -54,6 +57,8 @@ impl Wgpu {
             .await
             .expect("Failed to request a device!");
 
+        info!("{:?}", device.limits());
+
         #[cfg(target_arch = "wasm32")]
         {
             use wasm_bindgen::JsCast;
@@ -78,7 +83,8 @@ impl Wgpu {
                             "style",
                             &format!(
                                 "max-width:{0}px;max_height:{0}px",
-                                device.limits().max_texture_dimension_2d as f64 / device_pixel_ratio
+                                device.limits().max_texture_dimension_2d as f64
+                                    / device_pixel_ratio
                             ),
                         )
                         .expect("panic");
@@ -109,6 +115,7 @@ impl Wgpu {
     pub fn on_resize(&mut self, size: &winit::dpi::PhysicalSize<u32>) {
         self.surface_configuration.width = size.width;
         self.surface_configuration.height = size.height;
-        self.surface.configure(&self.device, &self.surface_configuration);
+        self.surface
+            .configure(&self.device, &self.surface_configuration);
     }
 }

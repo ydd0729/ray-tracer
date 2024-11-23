@@ -24,6 +24,9 @@ struct EguiRenderingContext {
 
 impl EguiRenderer {
     pub fn new(window: &Window, device: &Device, surface_format: TextureFormat) -> Self {
+        let gui_context = egui::Context::default();
+
+        // Font
         let mut fonts = FontDefinitions::default();
 
         fonts.font_data.insert(
@@ -36,22 +39,12 @@ impl EguiRenderer {
             .unwrap()
             .insert(0, FONT_SOURCE_HANS_SANS_CN_MEDIUM_NAME.to_owned());
 
-        let gui_context = egui::Context::default();
-
-        let scale_factor = window.scale_factor() as f32;
-        gui_context.set_pixels_per_point(1.0);
         gui_context.set_fonts(fonts);
 
-        // let text_styles: BTreeMap<_, _> = [
-        //     (Heading, FontId::new(12.0, Proportional)),
-        //     // (Name("Heading2".into()), FontId::new(25.0, Proportional)),
-        //     // (Name("Context".into()), FontId::new(23.0, Proportional)),
-        //     // (Body, FontId::new(18.0, Proportional)),
-        //     // (Monospace, FontId::new(14.0, Proportional)),
-        //     // (Button, FontId::new(14.0, Proportional)),
-        //     // (Small, FontId::new(10.0, Proportional)),
-        // ]
-        // .into();
+        // scale
+        gui_context.set_pixels_per_point(1.0);
+
+        // Style
         gui_context.all_styles_mut(move |style| {
             let body_style = style.text_styles.get(&Body).unwrap().clone();
             let heading_style = style.text_styles.get_mut(&Heading).unwrap();
@@ -63,7 +56,7 @@ impl EguiRenderer {
             gui_context,
             viewport_id,
             &window,
-            Some(scale_factor),
+            Some(window.scale_factor() as f32),
             Some(Theme::Dark),
             None,
         );
@@ -104,7 +97,6 @@ impl EguiRenderer {
         let paint_jobs = self.egui_state.egui_ctx().tessellate(shapes, pixels_per_point);
 
         let screen_descriptor = {
-            // let (width, height) = self.last_size;
             let width = window.inner_size().width;
             let height = window.inner_size().height;
 

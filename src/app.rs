@@ -5,6 +5,7 @@ use crate::gui::Gui;
 use crate::rendering::wgpu::Wgpu;
 use crate::time;
 use cfg_if::cfg_if;
+use log::info;
 use std::cell::{Ref, RefCell, RefMut};
 use std::sync::Arc;
 use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
@@ -27,7 +28,7 @@ pub struct App {
     wgpu: Option<RefCell<Wgpu>>,
     #[cfg(target_arch = "wasm32")]
     wgpu_context_receiver: Option<futures::channel::oneshot::Receiver<Wgpu>>,
-    renderer: Option<Renderer>,
+    renderer: Option<RefCell<Renderer>>,
 }
 
 impl App {
@@ -49,8 +50,14 @@ impl App {
     }
 
     fn resize(&mut self, size: &winit::dpi::PhysicalSize<u32>) {
+        info!("Resizing to {:?}", size);
+
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+
+        self.renderer_mut().on_resize(self.wgpu(), size);
         self.wgpu_mut().on_resize(size);
-        // self.textures_mut().on_resize(size, self.wgpu());
     }
 
     fn update(&mut self) {
@@ -61,6 +68,12 @@ impl App {
     }
 
     fn render(&mut self) {
+        let window_size = self.window().inner_size();
+
+        if window_size.width == 0 || window_size.height == 0 {
+            return;
+        }
+
         let surface_texture = match self.wgpu().surface.get_current_texture() {
             Ok(surface_texture) => surface_texture,
             Err(e) => {
@@ -71,14 +84,15 @@ impl App {
 
         let surface_view = surface_texture.texture.create_view(&Default::default());
 
-        let mut encoder = self
-            .wgpu()
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+        let mut encoder =
+            self.wgpu()
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Render Encoder"),
+                });
 
-        self.renderer.as_ref().unwrap().render(&surface_view, &mut encoder);
+        self.renderer_mut()
+            .render(self.wgpu(), &surface_view, &mut encoder);
 
         self.wgpu().queue.submit(Some(encoder.finish()));
 
@@ -163,14 +177,23 @@ impl winit::application::ApplicationHandler for App {
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {}
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: winit::window::WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
         if !self.try_receive_wgpu() {
             return;
         }
 
         if window_id == self.window().id() {
             // Receive gui window event
-            if self.ui_mut().on_window_event(self.window().as_ref(), &event).consumed {
+            if self
+                .ui_mut()
+                .on_window_event(self.window().as_ref(), &event)
+                .consumed
+            {
                 return;
             }
 
@@ -217,7 +240,9 @@ impl winit::application::ApplicationHandler for App {
                 WindowEvent::Touch(_) => {}
                 WindowEvent::ScaleFactorChanged { .. } => {}
                 WindowEvent::ThemeChanged(_) => {}
-                WindowEvent::Occluded(_) => {}
+                WindowEvent::Occluded(_) => {
+                    info!("Occluded");
+                }
                 WindowEvent::RedrawRequested => {
                     self.update();
                     self.render();
@@ -228,7 +253,12 @@ impl winit::application::ApplicationHandler for App {
         }
     }
 
-    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
         match &event {
             DeviceEvent::Added => {}
             DeviceEvent::Removed => {}
@@ -281,7 +311,7 @@ impl App {
 
     fn on_wgpu_received(&mut self) {
         // self.textures = Some(RefCell::new(WgpuTextures::new(self.window(), self.wgpu())));
-        self.renderer = Some(Renderer::new(self.wgpu()));
+        self.renderer = Some(RefCell::new(Renderer::new(self.wgpu(), self.window())));
     }
 
     fn update_delta_time(&mut self) -> time::Duration {
@@ -316,4 +346,12 @@ impl App {
     // fn textures_mut(&self) -> RefMut<'_, WgpuTextures> {
     //     self.textures.as_ref().unwrap().borrow_mut()
     // }
+
+    fn renderer(&self) -> Ref<'_, Renderer> {
+        self.renderer.as_ref().unwrap().borrow()
+    }
+
+    fn renderer_mut(&self) -> RefMut<'_, Renderer> {
+        self.renderer.as_ref().unwrap().borrow_mut()
+    }
 }
