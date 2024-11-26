@@ -23,44 +23,40 @@ impl WgpuRenderPass {
             vertex_buffer_layout.push(vertex_buffer.layout());
         }
 
-        let pipeline_layout = wgpu
-            .device
-            .create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Label::from(format!("{label} render pipeline layout").as_str()),
-                bind_group_layouts: bind_group_layouts.unwrap_or_default(),
-                push_constant_ranges: &[],
-            });
+        let pipeline_layout = wgpu.device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Label::from(format!("{label} render pipeline layout").as_str()),
+            bind_group_layouts: bind_group_layouts.unwrap_or_default(),
+            push_constant_ranges: &[],
+        });
 
-        let pipeline = wgpu
-            .device
-            .create_render_pipeline(&RenderPipelineDescriptor {
-                label: Label::from(format!("{label} pipeline").as_str()),
-                layout: Some(&pipeline_layout),
-                vertex: VertexState {
-                    module: shader,
-                    entry_point: Some("vertex_main"),
-                    compilation_options: Default::default(),
-                    buffers: vertex_buffer_layout.as_slice(),
-                },
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                fragment: Some(FragmentState {
-                    module: shader,
-                    entry_point: Some("fragment_main"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(ColorTargetState {
-                        format: wgpu.surface_configuration.format,
-                        blend: Some(BlendState {
-                            color: BlendComponent::REPLACE,
-                            alpha: BlendComponent::REPLACE,
-                        }),
-                        write_mask: ColorWrites::ALL,
-                    })],
-                }),
-                multiview: None,
-                cache: None,
-            });
+        let pipeline = wgpu.device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Label::from(format!("{label} pipeline").as_str()),
+            layout: Some(&pipeline_layout),
+            vertex: VertexState {
+                module: shader,
+                entry_point: Some("vertex_main"),
+                compilation_options: Default::default(),
+                buffers: vertex_buffer_layout.as_slice(),
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(FragmentState {
+                module: shader,
+                entry_point: Some("fragment_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(ColorTargetState {
+                    format: wgpu.surface_configuration.format,
+                    blend: Some(BlendState {
+                        color: BlendComponent::REPLACE,
+                        alpha: BlendComponent::REPLACE,
+                    }),
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
 
         Self {
             label: label.into(),

@@ -1,23 +1,15 @@
 @vertex
 fn vertex_main(
-    in: VertexInput,
-) -> VertexOutput {
-    var out: VertexOutput;
-    out.position = in.position;
-    out.tex = in.tex;
-    return out;
+    @location(0) position: vec4<f32>
+) -> @builtin(position) vec4<f32> {
+    return position;
 }
 
 @fragment
 fn fragment_main(
-    in: VertexOutput,
+    @builtin(position) position: vec4<f32>,
 ) -> @location(0) vec4<f32> {
-    let u = in.tex.x;
-    let v = in.tex.y;
-
-    let x = u32(u * f32(context.width));
-    let y = u32(v * f32(context.height));
-    let pixel_index = x + context.width * y;
+    let pixel_index = u32(position.x) + context.width * u32(position.y);
 
     let color = vec4<f32>(
         pixel_color[pixel_index][0],
@@ -28,24 +20,24 @@ fn fragment_main(
     return linear_to_srgb(color);
 }
 
-struct VertexInput {
-    @location(0) position: vec4<f32>,
-    @location(1) color: vec4<f32>,
-    @location(2) normal: vec4<f32>,
-    @location(3) tex: vec2<f32>,
-}
-
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) tex: vec2<f32>,
-};
-
-struct RayTracingContext {
+struct RenderContext {
     width: u32,
-    height: u32
+    height: u32,
+    sample_position: vec2<u32>,
+    pixel_origin: vec3<f32>,
+    samples_per_pixel: u32,
+    pixel_delta_u: vec3<f32>,
+    sample_grid_num: u32,
+    pixel_delta_v: vec3<f32>,
+    defocus_angle: f32,
+    defocus_disk_u: vec3<f32>,
+    sample_grid_len: f32,
+    defocus_disk_v: vec3<f32>,
+    sample_id: u32,
+    camera_position: vec3<f32>,
 }
 @group(0) @binding(0)
-var<uniform> context: RayTracingContext;
+var<uniform> context: RenderContext;
 
 @group(0) @binding(1)
 var<storage, read_write> pixel_color: array<array <f32, 3>>;

@@ -1,11 +1,21 @@
+pub mod camera;
+pub mod gui_state;
 mod renderer;
+mod scene;
 
-use crate::app::renderer::Renderer;
-use crate::gui::Gui;
+use crate::app::camera::CameraParameter;
+use crate::app::gui_state::GuiState;
+use crate::app::renderer::{Renderer, RendererParameter};
+use crate::app::scene::Scene;
+use crate::math::UNIT_Y;
+use crate::rendering::primitive::PrimitiveProvider;
 use crate::rendering::wgpu::Wgpu;
 use crate::time;
+use camera::Camera;
 use cfg_if::cfg_if;
+use getset::Getters;
 use log::info;
+use nalgebra::{Point3, Point4};
 use std::cell::{Ref, RefCell, RefMut};
 use std::sync::Arc;
 use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
@@ -17,18 +27,20 @@ cfg_if! {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Getters)]
 pub struct App {
     last_frame_time: Option<time::Instant>,
     // 必须使用 Arc ，因为 wgpu::Instance::create_surface 要求实现 Send 和 Sync
     window: Option<Arc<winit::window::Window>>,
-
-    gui: Option<RefCell<Gui>>,
-
     wgpu: Option<RefCell<Wgpu>>,
     #[cfg(target_arch = "wasm32")]
     wgpu_context_receiver: Option<futures::channel::oneshot::Receiver<Wgpu>>,
     renderer: Option<RefCell<Renderer>>,
+
+    gui_state: RefCell<GuiState>,
+    #[getset(get = "pub")]
+    camera: Camera,
+    scene: Scene,
 }
 
 impl App {
@@ -46,6 +58,25 @@ impl App {
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
         let mut app = App::default();
+
+        app.scene = Scene::scene_quad();
+        app.gui_state = RefCell::new(GuiState {
+            checkbox: false,
+            samples_per_pixel: 1,
+            max_ray_bounces: 0,
+            camera_parameter: CameraParameter {
+                position: Point3::new(0.0, 0.0, 2.0),
+                look_at: Point3::new(0.0, 0.0, 0.0),
+                vfov: 45.0,
+                up: *UNIT_Y,
+                focus_distance: 1.0,
+                defocus_angle: 0.0,
+                movement_speed: 0.0,
+                rotation_scale: Default::default(),
+            },
+        });
+        app.camera = Camera::new(app.gui_state.borrow().camera_parameter());
+
         event_loop.run_app(&mut app).expect("panic");
     }
 
@@ -56,7 +87,7 @@ impl App {
             return;
         }
 
-        self.renderer_mut().on_resize(self.wgpu(), size);
+        self.renderer_mut().on_resize(self.wgpu(), size, &self.camera);
         self.wgpu_mut().on_resize(size);
     }
 
@@ -64,7 +95,7 @@ impl App {
         let delta_time = self.update_delta_time();
         let window = self.window();
 
-        self.ui_mut().update(window, delta_time);
+        self.renderer_mut().on_update(window, delta_time, self.gui_state_mut());
     }
 
     fn render(&mut self) {
@@ -84,19 +115,7 @@ impl App {
 
         let surface_view = surface_texture.texture.create_view(&Default::default());
 
-        let mut encoder =
-            self.wgpu()
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Render Encoder"),
-                });
-
-        self.renderer_mut()
-            .render(self.wgpu(), &surface_view, &mut encoder);
-
-        self.wgpu().queue.submit(Some(encoder.finish()));
-
-        self.ui_mut().render(self.wgpu(), &surface_view);
+        self.renderer_mut().render(self.wgpu(), &surface_view);
 
         surface_texture.present();
     }
@@ -161,13 +180,8 @@ impl winit::application::ApplicationHandler for App {
                         }
                     });
                 } else {
-                    let wgpu_context = pollster::block_on(Wgpu::new(window.clone()));
-                    self.gui = Some(RefCell::new(Gui::new(
-                        window.as_ref(),
-                        &wgpu_context.device,
-                        wgpu_context.surface_configuration.format)
-                    ));
-                    self.wgpu = Some(RefCell::new(wgpu_context));
+                    let wgpu = pollster::block_on(Wgpu::new(window.clone()));
+                    self.wgpu = Some(RefCell::new(wgpu));
                     self.on_wgpu_received();
 
                 }
@@ -177,23 +191,14 @@ impl winit::application::ApplicationHandler for App {
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {}
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: winit::window::WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: winit::window::WindowId, event: WindowEvent) {
         if !self.try_receive_wgpu() {
             return;
         }
 
         if window_id == self.window().id() {
             // Receive gui window event
-            if self
-                .ui_mut()
-                .on_window_event(self.window().as_ref(), &event)
-                .consumed
-            {
+            if self.renderer_mut().on_window_event(self.window(), &event).consumed {
                 return;
             }
 
@@ -253,12 +258,7 @@ impl winit::application::ApplicationHandler for App {
         }
     }
 
-    fn device_event(
-        &mut self,
-        _event_loop: &ActiveEventLoop,
-        _device_id: DeviceId,
-        event: DeviceEvent,
-    ) {
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
         match &event {
             DeviceEvent::Added => {}
             DeviceEvent::Removed => {}
@@ -288,13 +288,8 @@ impl App {
         {
             let mut receive_success = false;
             if let Some(receiver) = self.wgpu_context_receiver.as_mut() {
-                if let Ok(Some(wgpu_context)) = receiver.try_recv() {
-                    self.gui = Some(RefCell::new(Gui::new(
-                        self.window().as_ref(),
-                        &wgpu_context.device,
-                        wgpu_context.surface_configuration.format,
-                    )));
-                    self.wgpu = Some(RefCell::new(wgpu_context));
+                if let Ok(Some(wgpu)) = receiver.try_recv() {
+                    self.wgpu = Some(RefCell::new(wgpu));
                     self.on_wgpu_received();
 
                     receive_success = true;
@@ -310,8 +305,25 @@ impl App {
     }
 
     fn on_wgpu_received(&mut self) {
-        // self.textures = Some(RefCell::new(WgpuTextures::new(self.window(), self.wgpu())));
-        self.renderer = Some(RefCell::new(Renderer::new(self.wgpu(), self.window())));
+        let camera = Camera::new(self.gui_state().camera_parameter());
+        self.camera = camera;
+
+        let render_parameter = RendererParameter {
+            samples_per_pixel: self.gui_state().samples_per_pixel(),
+            max_ray_bounces: self.gui_state().max_ray_bounces(),
+            max_width: 3840,
+            max_height: 2160,
+            background_color: Point4::new(0.0, 0.0, 0.0, 1.0),
+        };
+
+        self.renderer = Some(RefCell::new(Renderer::new(
+            self.wgpu(),
+            self.window(),
+            self.camera(),
+            self.gui_state(),
+            &render_parameter,
+            &self.scene.primitives(),
+        )));
     }
 
     fn update_delta_time(&mut self) -> time::Duration {
@@ -328,12 +340,7 @@ impl App {
     fn window(&self) -> Arc<winit::window::Window> {
         self.window.as_ref().unwrap().clone()
     }
-    // fn ui(&self) -> Ref<'_, Gui> {
-    //     self.gui.as_ref().unwrap().borrow()
-    // }
-    fn ui_mut(&self) -> RefMut<'_, Gui> {
-        self.gui.as_ref().unwrap().borrow_mut()
-    }
+
     fn wgpu(&self) -> Ref<'_, Wgpu> {
         self.wgpu.as_ref().unwrap().borrow()
     }
@@ -347,11 +354,19 @@ impl App {
     //     self.textures.as_ref().unwrap().borrow_mut()
     // }
 
-    fn renderer(&self) -> Ref<'_, Renderer> {
-        self.renderer.as_ref().unwrap().borrow()
-    }
+    // fn renderer(&self) -> Ref<'_, Renderer> {
+    //     self.renderer.as_ref().unwrap().borrow()
+    // }
 
     fn renderer_mut(&self) -> RefMut<'_, Renderer> {
         self.renderer.as_ref().unwrap().borrow_mut()
+    }
+
+    fn gui_state(&self) -> Ref<'_, GuiState> {
+        self.gui_state.borrow()
+    }
+
+    fn gui_state_mut(&self) -> RefMut<'_, GuiState> {
+        self.gui_state.borrow_mut()
     }
 }

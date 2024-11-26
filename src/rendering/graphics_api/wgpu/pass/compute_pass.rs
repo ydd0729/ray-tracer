@@ -15,27 +15,23 @@ impl WgpuComputePass {
         shader: &ShaderModule,
         work_group_size: [u32; 3],
     ) -> Self {
-        let pipeline_layout = wgpu
-            .device
-            .create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Label::from(format!("{label} compute pipeline layout").as_str()),
-                bind_group_layouts: bind_group_layouts.unwrap_or_default(),
-                push_constant_ranges: &[],
-            });
+        let pipeline_layout = wgpu.device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Label::from(format!("{label} compute pipeline layout").as_str()),
+            bind_group_layouts: bind_group_layouts.unwrap_or_default(),
+            push_constant_ranges: &[],
+        });
 
-        let pipeline = wgpu
-            .device
-            .create_compute_pipeline(&ComputePipelineDescriptor {
-                label: Label::from(format!("{label} compute pipeline").as_str()),
-                layout: Some(&pipeline_layout),
-                module: shader,
-                entry_point: Some("compute_main"),
-                compilation_options: PipelineCompilationOptions {
-                    constants: &Default::default(), // overridable constants
-                    zero_initialize_workgroup_memory: false,
-                },
-                cache: None,
-            });
+        let pipeline = wgpu.device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Label::from(format!("{label} compute pipeline").as_str()),
+            layout: Some(&pipeline_layout),
+            module: shader,
+            entry_point: Some("compute_main"),
+            compilation_options: PipelineCompilationOptions {
+                constants: &Default::default(), // overridable constants
+                zero_initialize_workgroup_memory: false,
+            },
+            cache: None,
+        });
 
         Self {
             label: label.into(),

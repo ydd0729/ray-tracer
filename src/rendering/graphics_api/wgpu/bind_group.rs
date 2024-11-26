@@ -18,12 +18,7 @@ pub struct WgpuBindGroup {
 }
 
 impl WgpuBindGroup {
-    pub fn new(
-        wgpu: &Wgpu,
-        label: Option<&str>,
-        group_id: u32,
-        buffers: Vec<Rc<WgpuBindBuffer>>,
-    ) -> Self {
+    pub fn new(wgpu: &Wgpu, label: Option<&str>, group_id: u32, buffers: Vec<Rc<WgpuBindBuffer>>) -> Self {
         let mut bind_group_layout_entries = Vec::new();
         let mut bind_group_entries = Vec::<BindGroupEntry>::new();
 
@@ -46,12 +41,10 @@ impl WgpuBindGroup {
 
         let label = label.unwrap_or("");
 
-        let bind_group_layout = wgpu
-            .device
-            .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Label::from(format!("{} bind group layout", label).as_str()),
-                entries: bind_group_layout_entries.as_slice(),
-            });
+        let bind_group_layout = wgpu.device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Label::from(format!("{} bind group layout", label).as_str()),
+            entries: bind_group_layout_entries.as_slice(),
+        });
 
         let bind_group = wgpu.device.create_bind_group(&BindGroupDescriptor {
             label: Label::from(format!("{} bind group", label).as_str()),

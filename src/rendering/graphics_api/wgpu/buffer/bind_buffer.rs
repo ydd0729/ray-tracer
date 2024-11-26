@@ -10,7 +10,7 @@ pub struct WgpuBindBuffer {
     visibility: ShaderStages,
     #[getset(get_copy = "pub")]
     binding_type: BufferBindingType,
-    read_only: bool,
+    // read_only: bool,
 }
 
 impl IWgpuBuffer for WgpuBindBuffer {
@@ -43,7 +43,7 @@ impl WgpuBindBuffer {
             buffer,
             visibility,
             binding_type,
-            read_only,
+            // read_only,
         }
     }
 }

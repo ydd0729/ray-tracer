@@ -1,12 +1,10 @@
-use crate::gui::state::GuiState;
+use crate::app::gui_state::GuiState;
 use crate::rendering::wgpu::Wgpu;
 use crate::time;
 use crate::{FONT_SOURCE_HANS_SANS_CN_MEDIUM, FONT_SOURCE_HANS_SANS_CN_MEDIUM_NAME};
 use egui::TextStyle::{Body, Heading};
-use egui::{ClippedPrimitive, FontData, FontDefinitions, FontFamily, Rounding, Shadow, TexturesDelta, Ui};
+use egui::{ClippedPrimitive, FontData, FontDefinitions, FontFamily, Rounding, Shadow, TexturesDelta};
 use egui_winit::EventResponse;
-use std::cell::Ref;
-use std::sync::Arc;
 use wgpu::*;
 use winit::window::{Theme, Window};
 
@@ -74,8 +72,8 @@ impl EguiRenderer {
         self.egui_state.on_window_event(window, event)
     }
 
-    pub fn update(&mut self, window: Arc<Window>, _delta_time: time::Duration, gui_state: &mut GuiState) {
-        let gui_input = self.egui_state.take_egui_input(window.as_ref());
+    pub fn update(&mut self, window: &Window, _delta_time: time::Duration, gui_state: &mut GuiState) {
+        let gui_input = self.egui_state.take_egui_input(window);
         self.egui_state.egui_ctx().begin_pass(gui_input);
 
         self.egui_state.egui_ctx().set_visuals(egui::Visuals {
@@ -85,7 +83,7 @@ impl EguiRenderer {
         });
 
         let gui_window = egui::Window::new("Settings");
-        gui_window.show(self.egui_state.egui_ctx(), |ui| Self::build_ui(ui, gui_state));
+        gui_window.show(self.egui_state.egui_ctx(), |ui| gui_state.create_ui(ui));
 
         let egui::FullOutput {
             textures_delta,
@@ -115,7 +113,7 @@ impl EguiRenderer {
         })
     }
 
-    pub fn render(&mut self, wgpu_context: Ref<Wgpu>, surface_view: &TextureView) {
+    pub fn render(&mut self, wgpu: &Wgpu, encoder: &mut CommandEncoder, surface_view: &TextureView) {
         if self.context.is_none() {
             return;
         }
@@ -123,41 +121,27 @@ impl EguiRenderer {
         let ui_render_context = self.context.take().unwrap();
 
         self.egui_render_pass
-            .add_textures(
-                &wgpu_context.device,
-                &wgpu_context.queue,
-                &ui_render_context.textures_delta,
-            )
+            .add_textures(&wgpu.device, &wgpu.queue, &ui_render_context.textures_delta)
             .expect("panic");
         self.egui_render_pass
             .remove_textures(ui_render_context.textures_delta)
             .expect("panic");
 
-        let mut encoder = wgpu_context.device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
-
         self.egui_render_pass.update_buffers(
-            &wgpu_context.device,
-            &wgpu_context.queue,
+            &wgpu.device,
+            &wgpu.queue,
             &ui_render_context.paint_jobs,
             &ui_render_context.screen_descriptor,
         );
 
         self.egui_render_pass
             .execute(
-                &mut encoder,
+                encoder,
                 surface_view,
                 &ui_render_context.paint_jobs,
                 &ui_render_context.screen_descriptor,
                 None,
             )
             .expect("panic");
-
-        wgpu_context.queue.submit(Some(encoder.finish()));
-    }
-
-    fn build_ui(ui: &mut Ui, state: &mut GuiState) {
-        ui.checkbox(&mut state.checkbox, "Show Panels");
     }
 }

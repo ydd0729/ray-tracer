@@ -10,10 +10,8 @@ cfg_if! {
 }
 
 pub mod app;
-mod color;
-mod gui;
 mod math;
-mod rendering;
+pub mod rendering;
 
 lazy_static! {
     static ref FONT_SOURCE_HANS_SANS_CN_MEDIUM: &'static [u8] =
