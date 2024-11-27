@@ -1,8 +1,11 @@
-use crate::rendering::wgpu::bind_buffer::WgpuBindBuffer;
-use crate::rendering::wgpu::{IWgpuBuffer, Wgpu};
+use crate::rendering::wgpu::Wgpu;
 use getset::*;
-use std::rc::Rc;
 use wgpu::*;
+
+pub trait WgpuBindable<'a> {
+    fn bind_group_layout_entry(&self) -> BindGroupLayoutEntry;
+    fn binding_resource(&'a self) -> BindingResource<'a>;
+}
 
 #[derive(CopyGetters, Getters)]
 pub struct WgpuBindGroup {
@@ -18,24 +21,18 @@ pub struct WgpuBindGroup {
 }
 
 impl WgpuBindGroup {
-    pub fn new(wgpu: &Wgpu, label: Option<&str>, group_id: u32, buffers: Vec<Rc<WgpuBindBuffer>>) -> Self {
+    pub fn new<'a>(wgpu: &Wgpu, label: Option<&str>, group_id: u32, entries: &'a [&dyn WgpuBindable<'a>]) -> Self {
         let mut bind_group_layout_entries = Vec::new();
         let mut bind_group_entries = Vec::<BindGroupEntry>::new();
 
-        for (i, buffer) in buffers.iter().enumerate() {
-            bind_group_layout_entries.push(BindGroupLayoutEntry {
-                binding: i as u32,
-                visibility: buffer.visibility(),
-                ty: BindingType::Buffer {
-                    ty: buffer.binding_type(),
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None, // 只有在 BufferBindingType::Texture 时才需要此项
-            });
+        for (i, entry) in entries.iter().enumerate() {
+            let mut layout = entry.bind_group_layout_entry();
+            layout.binding = i as u32;
+            bind_group_layout_entries.push(layout);
+
             bind_group_entries.push(BindGroupEntry {
                 binding: i as u32,
-                resource: buffer.as_entire_binding(),
+                resource: entry.binding_resource(),
             });
         }
 

@@ -1,13 +1,13 @@
 mod bind_group;
 mod buffer;
 mod pass;
-mod texture;
+pub mod texture;
 
 pub use bind_group::*;
 pub use buffer::*;
 pub use pass::compute_pass::*;
 pub use pass::render_pass::*;
-// pub use textures::*;
+pub use texture::*;
 
 use log::info;
 use std::sync::Arc;
@@ -15,7 +15,6 @@ use wgpu::TextureFormat::Rgba8Unorm;
 use wgpu::*;
 
 pub struct Wgpu {
-    // window: Arc<winit::window::Window>,
     pub surface_configuration: SurfaceConfiguration,
     pub surface: Surface<'static>,
     pub device: Device,
@@ -98,12 +97,12 @@ impl Wgpu {
             .unwrap();
 
         surface_configuration.format = Rgba8Unorm;
+        surface_configuration.usage = TextureUsages::RENDER_ATTACHMENT | TextureUsages::STORAGE_BINDING;
         info!("{:?}", surface_configuration);
 
         surface.configure(&device, &surface_configuration);
 
         Self {
-            // window,
             surface_configuration,
             surface,
             device,

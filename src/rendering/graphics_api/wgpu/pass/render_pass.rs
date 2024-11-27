@@ -67,27 +67,27 @@ impl WgpuRenderPass {
     pub fn render(
         &self,
         encoder: &mut CommandEncoder,
-        texture_view: &TextureView,
+        texture_view: Option<&TextureView>,
         vertex_buffers: &[&WgpuVertexBuffer],
         index_buffer: Option<&WgpuIndexBuffer>,
         bind_groups: Option<&[&WgpuBindGroup]>,
+        load_op: LoadOp<Color>,
         store_op: StoreOp,
     ) {
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(&self.label),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: texture_view,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 0.0,
-                    }),
-                    store: store_op,
-                },
-            })],
+            color_attachments: &if let Some(texture_view) = texture_view {
+                [Some(RenderPassColorAttachment {
+                    view: texture_view,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: load_op,
+                        store: store_op,
+                    },
+                })]
+            } else {
+                [None]
+            },
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,

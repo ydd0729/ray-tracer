@@ -1,8 +1,8 @@
 use crate::app::camera::Camera;
-use crate::math::{degree_to_radian, UNIT_UP};
+use crate::math::degree_to_radian;
 use bytemuck::{Pod, Zeroable};
 use log::info;
-use nalgebra::{Point2, Point3, UnitVector3, Vector3};
+use nalgebra::{Point2, Point3, Vector3};
 
 #[repr(C)]
 #[derive(Copy, Clone, Zeroable, Pod, Default, Debug)]
@@ -85,5 +85,8 @@ impl RenderContext {
 
     fn aspect_ratio(&self) -> f32 {
         self.width as f32 / self.height as f32
+    }
+    pub fn pixels(&self) -> u32 {
+        self.width * self.height
     }
 }

@@ -19,6 +19,8 @@ fn compute_main(
     pixel_color[pixel_index][0] = color.x;
     pixel_color[pixel_index][1] = color.y;
     pixel_color[pixel_index][2] = color.z;
+    
+    textureStore(surface, gid.xy, vec4(linear_to_srgb(color), 1.0));
 }
 
 var<private> pixel_position: vec2<f32>;
@@ -45,6 +47,12 @@ var<uniform> context: RenderContext;
 @group(0) @binding(1)
 var<storage, read_write> pixel_color: array<array<f32, 3>>; // 这里如果内部使用 vec3 会浪费 4 个字节用于对齐
 
+@group(0) @binding(2)
+var<storage, read> quads: array<Quad>;
+
+@group(0) @binding(3)
+var surface: texture_storage_2d<rgba8unorm, write>;
+
 fn ray_color(
     ray: ptr<function, Ray>,
 ) -> vec3<f32> {
@@ -52,7 +60,7 @@ fn ray_color(
     var hit_record: HitRecord;
     var interval = Interval_init_2f(0.001, MAX);
     for (var i: u32 = 0; i < n; i++) {
-        if Quad_hit(quads[i], ray, &interval, &hit_record) {
+        if Quad_hit(i, ray, &interval, &hit_record) {
             return vec3<f32>(1.0, 1.0, 1.0);
         }
     }
@@ -83,17 +91,15 @@ struct Quad {
     w: vec3<f32>  // w 是将 quad 所在平面上的点转换到 quad 定义的坐标系（bottom_left, right, up）上时需要用到的变量
                   // w = normal / dot(normal, normal) ，详见 Ray Tracing: The Next Week, p59
 }
-@group(0) @binding(2)
-var<storage, read> quads: array<Quad>;
 
 fn Quad_hit(
-    s: Quad, // storage 空间的指针不能作为函数参数，所以这里没用指针
+    id: u32, // storage 空间的指针不能作为函数参数，所以这里用索引
     ray: ptr<function, Ray>,
     interval: ptr<function, Interval>,
     hit_record: ptr<function, HitRecord>,
 ) -> bool {
-    var quad = s;
-    let nd = dot(quad.normal, (*ray).direction);
+    let quad: ptr<storage, Quad> = &quads[id];
+    let nd = dot((*quad).normal, (*ray).direction);
 
     // No hit if the ray is parallel to the plane.
     if abs(nd) < ZERO_TOLERANCE {
@@ -101,24 +107,24 @@ fn Quad_hit(
     }
 
     // Return false if the hit point parameter t is outside the ray interval.
-    let t = (quad.d - dot(quad.normal, (*ray).origin)) / nd;
+    let t = ((*quad).d - dot((*quad).normal, (*ray).origin)) / nd;
     if !Interval_contains(interval, t) {
         return false;
     }
 
     // Determine the hit point lies within the planar shape using its plane coordinates.
     let intersection = Ray_at(ray, t);
-    let planar_hit_vector = intersection - quad.bottom_left;
-    let alpha = dot(quad.w, cross(planar_hit_vector, quad.up));
-    let beta = dot(quad.w, cross(quad.right, planar_hit_vector));
+    let planar_hit_vector = intersection - (*quad).bottom_left;
+    let alpha = dot((*quad).w, cross(planar_hit_vector, (*quad).up));
+    let beta = dot((*quad).w, cross((*quad).right, planar_hit_vector));
 
-    if !Quad_is_interior(&quad, alpha, beta, hit_record) {
+    if !Quad_is_interior(alpha, beta, hit_record) {
         return false;
     }
 
     (*hit_record).ray_t = t;
     (*hit_record).position = intersection;
-    (*hit_record).material_id = quad.material_id;
+    (*hit_record).material_id = (*quad).material_id;
 
     // 如果这里的第 3 个参数传入指针，就应该是 &quad.normal ，但这种写法要求支持 WGSL 扩展 unrestricted_pointer_parameters
     // https://www.w3.org/TR/WGSL/#language_extension-unrestricted_pointer_parameters
@@ -126,13 +132,12 @@ fn Quad_hit(
     //
     // 如果在不支持的平台上在这里用指针，会报一个奇怪的错：
     // internal error: entered unreachable code: Expression [50] is not cached!
-    HitRecord_set_face_normal(hit_record, ray, quad.normal);
+    HitRecord_set_face_normal(hit_record, ray, (*quad).normal);
 
     return true;
 }
 
 fn Quad_is_interior(
-    s: ptr<function, Quad>,
     alpha: f32,
     beta: f32,
     hit_record: ptr<function, HitRecord>
@@ -354,4 +359,22 @@ fn lcg_step(z: u32, a: u32, c: u32) -> u32 {
 // Function giving seed for each thread
 fn seed(id: u32) -> u32  {
     return id * 1099087573u;
+}
+
+/*------------------------------------- sRGB Color Space ----------------------------------------*/
+
+
+fn linear_to_srgb(color: vec3<f32>) -> vec3<f32> {
+    // https://gamedev.stackexchange.com/questions/92015/optimized-linear-to-srgb-glsl
+    let cutoff = color.rgb < vec3(0.0031308);
+    let higher = vec3(1.055) * pow(color.rgb, vec3(1.0 / 2.4)) - vec3(0.055);
+    let lower = color.rgb * vec3(12.92);
+    return select(higher, lower, cutoff);
+}
+
+fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
+    let cutoff = color.rgb < vec3(0.04045);
+    let higher = pow((color.rgb + vec3(0.055)) / vec3(1.055), vec3(2.4));
+    let lower = color.rgb / vec3(12.92);
+    return select(higher, lower, cutoff);
 }

@@ -19,7 +19,7 @@ impl Scene {
         ));
 
         Self {
-            camera_initial_position: Point3::new(0.0, 0.0, 1.0),
+            camera_initial_position: Point3::new(0.0, 0.0, 2.0),
             camera_initial_look_at: Point3::new(0.0, 0.0, 0.0),
             objects,
         }

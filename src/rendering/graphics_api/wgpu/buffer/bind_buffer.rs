@@ -1,15 +1,16 @@
 use crate::rendering::wgpu::buffer::WgpuBuffer;
-use crate::rendering::wgpu::{IWgpuBuffer, Wgpu};
+use crate::rendering::wgpu::{IWgpuBuffer, Wgpu, WgpuBindable};
 use getset::CopyGetters;
-use wgpu::{Buffer, BufferAddress, BufferBindingType, BufferUsages, ShaderStages};
+use wgpu::{
+    BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferAddress,
+    BufferBindingType, BufferUsages, ShaderStages,
+};
 
 #[derive(CopyGetters)]
 pub struct WgpuBindBuffer {
     buffer: WgpuBuffer,
-    #[getset(get_copy = "pub")]
     visibility: ShaderStages,
-    #[getset(get_copy = "pub")]
-    binding_type: BufferBindingType,
+    buffer_binding_type: BufferBindingType,
     // read_only: bool,
 }
 
@@ -30,11 +31,11 @@ impl WgpuBindBuffer {
     ) -> Self {
         let buffer = WgpuBuffer::new(wgpu, label, size, usage);
 
-        let binding_type: BufferBindingType;
+        let buffer_binding_type: BufferBindingType;
         if usage.contains(BufferUsages::UNIFORM) {
-            binding_type = BufferBindingType::Uniform;
+            buffer_binding_type = BufferBindingType::Uniform;
         } else if usage.contains(BufferUsages::STORAGE) {
-            binding_type = BufferBindingType::Storage { read_only };
+            buffer_binding_type = BufferBindingType::Storage { read_only };
         } else {
             panic!("Unsupported buffer usage");
         }
@@ -42,8 +43,27 @@ impl WgpuBindBuffer {
         Self {
             buffer,
             visibility,
-            binding_type,
+            buffer_binding_type,
             // read_only,
         }
+    }
+}
+
+impl<'a> WgpuBindable<'a> for WgpuBindBuffer {
+    fn bind_group_layout_entry(&self) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding: 0,
+            visibility: self.visibility,
+            ty: BindingType::Buffer {
+                ty: self.buffer_binding_type,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None, // 只有在 BufferBindingType::Texture 时才需要此项
+        }
+    }
+
+    fn binding_resource(&'a self) -> BindingResource<'a> {
+        self.as_entire_binding()
     }
 }

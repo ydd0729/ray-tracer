@@ -1,23 +1,25 @@
 pub mod camera;
+pub mod egui_renderer;
 pub mod gui_state;
 mod renderer;
 mod scene;
 
 use crate::app::camera::CameraParameter;
 use crate::app::gui_state::GuiState;
-use crate::app::renderer::{Renderer, RendererParameter};
+use crate::app::renderer::{Renderer, RendererParameters};
 use crate::app::scene::Scene;
 use crate::math::UNIT_Y;
 use crate::rendering::primitive::PrimitiveProvider;
-use crate::rendering::wgpu::Wgpu;
+use crate::rendering::wgpu::{Wgpu, WgpuTexture, WgpuTextureBindingInstruction, WgpuTextureBindingType};
 use crate::time;
 use camera::Camera;
 use cfg_if::cfg_if;
 use getset::Getters;
 use log::info;
-use nalgebra::{Point3, Point4};
+use nalgebra::Point4;
 use std::cell::{Ref, RefCell, RefMut};
 use std::sync::Arc;
+use wgpu::{ShaderStages, TextureSampleType};
 use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 
@@ -65,8 +67,8 @@ impl App {
             samples_per_pixel: 1,
             max_ray_bounces: 0,
             camera_parameter: CameraParameter {
-                position: Point3::new(0.0, 0.0, 2.0),
-                look_at: Point3::new(0.0, 0.0, 0.0),
+                position: app.scene.camera_initial_position,
+                look_at: app.scene.camera_initial_look_at,
                 vfov: 45.0,
                 up: *UNIT_Y,
                 focus_distance: 1.0,
@@ -99,9 +101,9 @@ impl App {
     }
 
     fn render(&mut self) {
-        let window_size = self.window().inner_size();
+        let (width, height): (u32, u32) = self.window().inner_size().into();
 
-        if window_size.width == 0 || window_size.height == 0 {
+        if width == 0 || height == 0 {
             return;
         }
 
@@ -113,9 +115,18 @@ impl App {
             }
         };
 
-        let surface_view = surface_texture.texture.create_view(&Default::default());
+        let wgpu_surface_storage = WgpuTexture::new_from_texture(
+            "surface",
+            &surface_texture.texture,
+            WgpuTextureBindingInstruction {
+                visibility: ShaderStages::COMPUTE,
+                binding_type: WgpuTextureBindingType::StorageTexture,
+                storage_access: None,
+                sample_type: Some(TextureSampleType::Float { filterable: false }),
+            },
+        );
 
-        self.renderer_mut().render(self.wgpu(), &surface_view);
+        self.renderer_mut().render(self.wgpu(), wgpu_surface_storage);
 
         surface_texture.present();
     }
@@ -308,19 +319,18 @@ impl App {
         let camera = Camera::new(self.gui_state().camera_parameter());
         self.camera = camera;
 
-        let render_parameter = RendererParameter {
+        let render_parameter = RendererParameters {
             samples_per_pixel: self.gui_state().samples_per_pixel(),
             max_ray_bounces: self.gui_state().max_ray_bounces(),
             max_width: 3840,
             max_height: 2160,
-            background_color: Point4::new(0.0, 0.0, 0.0, 1.0),
+            clear_color: Point4::new(0.0, 0.0, 0.0, 1.0),
         };
 
         self.renderer = Some(RefCell::new(Renderer::new(
             self.wgpu(),
             self.window(),
             self.camera(),
-            self.gui_state(),
             &render_parameter,
             &self.scene.primitives(),
         )));
@@ -340,32 +350,18 @@ impl App {
     fn window(&self) -> Arc<winit::window::Window> {
         self.window.as_ref().unwrap().clone()
     }
-
     fn wgpu(&self) -> Ref<'_, Wgpu> {
         self.wgpu.as_ref().unwrap().borrow()
     }
     fn wgpu_mut(&self) -> RefMut<'_, Wgpu> {
         self.wgpu.as_ref().unwrap().borrow_mut()
     }
-    // fn rendering_context(&self) -> Ref<'_, Textures> {
-    //     self.textures.as_ref().unwrap().borrow()
-    // }
-    // fn textures_mut(&self) -> RefMut<'_, WgpuTextures> {
-    //     self.textures.as_ref().unwrap().borrow_mut()
-    // }
-
-    // fn renderer(&self) -> Ref<'_, Renderer> {
-    //     self.renderer.as_ref().unwrap().borrow()
-    // }
-
     fn renderer_mut(&self) -> RefMut<'_, Renderer> {
         self.renderer.as_ref().unwrap().borrow_mut()
     }
-
     fn gui_state(&self) -> Ref<'_, GuiState> {
         self.gui_state.borrow()
     }
-
     fn gui_state_mut(&self) -> RefMut<'_, GuiState> {
         self.gui_state.borrow_mut()
     }
