@@ -3,7 +3,6 @@ pub mod quad;
 mod sphere;
 pub mod transformable;
 
-pub use cube::*;
 pub use quad::*;
 pub use transformable::*;
 

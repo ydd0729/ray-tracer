@@ -1,4 +1,4 @@
-use crate::math::{degree_to_radian, nearly_same_direction, NEG_UNIT_Z, UNIT_X, UNIT_Y, UNIT_Z};
+use crate::math::{degree_to_radian, nearly_same_direction};
 use getset::{CopyGetters, Getters};
 use nalgebra::{Point3, UnitQuaternion, UnitVector3, Vector2, Vector3};
 use std::f32::consts::PI;
@@ -7,6 +7,7 @@ use std::f32::consts::PI;
 pub struct Camera {
     #[getset(get = "pub")]
     position: Point3<f32>, // Point camera is looking from
+    #[getset(get = "pub")]
     rotation: UnitQuaternion<f32>,
 
     #[getset(get_copy = "pub")]
@@ -36,14 +37,14 @@ impl Default for Camera {
             position: Default::default(),
             rotation: Default::default(),
             vfov: 0.0,
-            up: *UNIT_Y,
+            up: Vector3::y_axis(),
             focus_distance: 0.0,
             defocus_angle: 0.0,
             movement_speed: 0.0,
             rotation_scale: Default::default(),
-            u: *UNIT_X,
-            v: *UNIT_Y,
-            w: *UNIT_Z,
+            u: Vector3::x_axis(),
+            v: Vector3::y_axis(),
+            w: Vector3::z_axis(),
         }
     }
 }
@@ -65,7 +66,7 @@ impl Default for CameraParameter {
             position: Default::default(),
             look_at: Default::default(),
             vfov: 0.0,
-            up: *UNIT_Y,
+            up: Vector3::y_axis(),
             focus_distance: 0.0,
             defocus_angle: 0.0,
             movement_speed: 0.0,
@@ -76,9 +77,9 @@ impl Default for CameraParameter {
 
 impl Camera {
     pub fn new(parameter: &CameraParameter) -> Self {
-        let rotation = UnitQuaternion::rotation_between(&UNIT_Z, &(parameter.position - parameter.look_at))
+        let rotation = UnitQuaternion::rotation_between(&Vector3::z_axis(), &(parameter.position - parameter.look_at))
             // rotation_between 在两个方向共线且方向相反时会返回 None ，因为此时的旋转不唯一
-            .unwrap_or(UnitQuaternion::from_axis_angle(&UNIT_Y, PI));
+            .unwrap_or(UnitQuaternion::from_axis_angle(&Vector3::y_axis(), PI));
         let mut camera = Camera {
             position: parameter.position,
             rotation,
@@ -88,9 +89,9 @@ impl Camera {
             defocus_angle: parameter.defocus_angle,
             movement_speed: parameter.movement_speed,
             rotation_scale: parameter.rotation_scale,
-            u: *UNIT_X,
-            v: *UNIT_Y,
-            w: *UNIT_Z,
+            u: Vector3::x_axis(),
+            v: Vector3::y_axis(),
+            w: Vector3::z_axis(),
         };
 
         camera.update_camera_frame();
@@ -126,7 +127,9 @@ impl Camera {
 
     fn try_rotate(&mut self, rotation: &UnitQuaternion<f32>) -> bool {
         let new_rotation = rotation * self.rotation;
-        if !self.nearly_up(&UnitVector3::new_unchecked(new_rotation.transform_vector(&NEG_UNIT_Z))) {
+        if !self.nearly_up(&UnitVector3::new_unchecked(
+            new_rotation.transform_vector(&-Vector3::z_axis()),
+        )) {
             self.rotation = new_rotation;
             return true;
         }
@@ -138,7 +141,7 @@ impl Camera {
     }
 
     fn update_camera_frame(&mut self) {
-        self.w = self.rotation * *UNIT_Z;
+        self.w = self.rotation * Vector3::z_axis();
         self.u = UnitVector3::new_normalize(self.up.cross(&self.w));
         self.v = UnitVector3::new_normalize(self.w.cross(&self.u));
     }

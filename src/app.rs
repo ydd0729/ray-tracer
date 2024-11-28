@@ -1,14 +1,15 @@
 pub mod camera;
 pub mod egui_renderer;
 pub mod gui_state;
+pub mod input;
 mod renderer;
 mod scene;
 
 use crate::app::camera::CameraParameter;
 use crate::app::gui_state::GuiState;
+use crate::app::input::PressRecord;
 use crate::app::renderer::{Renderer, RendererParameters};
 use crate::app::scene::Scene;
-use crate::math::UNIT_Y;
 use crate::rendering::primitive::PrimitiveProvider;
 use crate::rendering::wgpu::{Wgpu, WgpuTexture, WgpuTextureBindingInstruction, WgpuTextureBindingType};
 use crate::time;
@@ -16,12 +17,14 @@ use camera::Camera;
 use cfg_if::cfg_if;
 use getset::Getters;
 use log::info;
-use nalgebra::Point4;
+use nalgebra::{Point4, Vector2, Vector3};
 use std::cell::{Ref, RefCell, RefMut};
+use std::collections::HashMap;
 use std::sync::Arc;
 use wgpu::{ShaderStages, TextureSampleType};
-use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, StartCause, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::KeyCode;
 
 cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
@@ -43,6 +46,9 @@ pub struct App {
     #[getset(get = "pub")]
     camera: Camera,
     scene: Scene,
+
+    allow_input: bool,
+    key_records: HashMap<KeyCode, PressRecord>,
 }
 
 impl App {
@@ -59,25 +65,47 @@ impl App {
         let event_loop = winit::event_loop::EventLoop::new().unwrap();
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-        let mut app = App::default();
+        let keys = vec![
+            (KeyCode::KeyW, PressRecord::default()),
+            (KeyCode::KeyA, PressRecord::default()),
+            (KeyCode::KeyS, PressRecord::default()),
+            (KeyCode::KeyD, PressRecord::default()),
+            (KeyCode::KeyQ, PressRecord::default()),
+            (KeyCode::KeyE, PressRecord::default()),
+        ];
+        let key_records: HashMap<KeyCode, PressRecord> = keys.into_iter().collect();
 
-        app.scene = Scene::scene_quad();
-        app.gui_state = RefCell::new(GuiState {
+        let scene = Scene::scene_cube();
+
+        let gui_state = RefCell::new(GuiState {
             checkbox: false,
             samples_per_pixel: 1,
             max_ray_bounces: 0,
             camera_parameter: CameraParameter {
-                position: app.scene.camera_initial_position,
-                look_at: app.scene.camera_initial_look_at,
+                position: scene.camera_initial_position,
+                look_at: scene.camera_initial_look_at,
                 vfov: 45.0,
-                up: *UNIT_Y,
+                up: Vector3::y_axis(),
                 focus_distance: 1.0,
                 defocus_angle: 0.0,
-                movement_speed: 0.0,
-                rotation_scale: Default::default(),
+                movement_speed: 1.0,
+                rotation_scale: Vector3::new(0.2, 0.1, 0.0),
             },
         });
-        app.camera = Camera::new(app.gui_state.borrow().camera_parameter());
+
+        let camera = Camera::new(gui_state.borrow().camera_parameter());
+
+        let mut app = Self {
+            last_frame_time: None,
+            window: None,
+            wgpu: None,
+            renderer: None,
+            gui_state,
+            camera,
+            scene,
+            allow_input: false,
+            key_records,
+        };
 
         event_loop.run_app(&mut app).expect("panic");
     }
@@ -97,7 +125,24 @@ impl App {
         let delta_time = self.update_delta_time();
         let window = self.window();
 
-        self.renderer_mut().on_update(window, delta_time, self.gui_state_mut());
+        let mut translation = Vector3::<f32>::zeros();
+
+        translation.x = self.key_records.get_mut(&KeyCode::KeyD).unwrap().delta()
+            - self.key_records.get_mut(&KeyCode::KeyA).unwrap().delta();
+
+        translation.y = self.key_records.get_mut(&KeyCode::KeyE).unwrap().delta()
+            - self.key_records.get_mut(&KeyCode::KeyQ).unwrap().delta();
+
+        translation.z = self.key_records.get_mut(&KeyCode::KeyW).unwrap().delta()
+            - self.key_records.get_mut(&KeyCode::KeyS).unwrap().delta();
+
+        self.camera.translate(translation);
+
+        self.renderer_mut()
+            .on_update(window, self.wgpu(), delta_time, &self.camera, self.gui_state_mut());
+
+        // info!("camera position: {:?}", self.camera.position());
+        // info!("camera rotation: {:?}", self.camera.rotation());
     }
 
     fn render(&mut self) {
@@ -231,6 +276,7 @@ impl winit::application::ApplicationHandler for App {
                     event:
                         winit::event::KeyEvent {
                             physical_key: winit::keyboard::PhysicalKey::Code(key_code),
+                            state,
                             ..
                         },
                     ..
@@ -239,6 +285,10 @@ impl winit::application::ApplicationHandler for App {
                     if matches!(key_code, winit::keyboard::KeyCode::Escape) {
                         event_loop.exit();
                     }
+
+                    if self.allow_input && self.key_records.contains_key(key_code) {
+                        self.key_records.entry(*key_code).or_default().update(*state);
+                    }
                 }
                 WindowEvent::ModifiersChanged(_) => {}
                 WindowEvent::Ime(_) => {}
@@ -246,7 +296,21 @@ impl winit::application::ApplicationHandler for App {
                 WindowEvent::CursorEntered { .. } => {}
                 WindowEvent::CursorLeft { .. } => {}
                 WindowEvent::MouseWheel { .. } => {}
-                WindowEvent::MouseInput { .. } => {}
+                WindowEvent::MouseInput {
+                    button: MouseButton::Right,
+                    state,
+                    ..
+                } => match state {
+                    ElementState::Pressed => {
+                        self.allow_input = true;
+                    }
+                    ElementState::Released => {
+                        self.allow_input = false;
+                        for record in &mut self.key_records.values_mut() {
+                            record.release()
+                        }
+                    }
+                },
                 WindowEvent::PinchGesture { .. } => {}
                 WindowEvent::PanGesture { .. } => {}
                 WindowEvent::DoubleTapGesture { .. } => {}
@@ -273,7 +337,13 @@ impl winit::application::ApplicationHandler for App {
         match &event {
             DeviceEvent::Added => {}
             DeviceEvent::Removed => {}
-            DeviceEvent::MouseMotion { .. } => {}
+            // (x, y) change in position in unspecified units.
+            // Different devices may use different units.
+            DeviceEvent::MouseMotion { delta: (x, y), .. } => {
+                if self.allow_input {
+                    self.camera.rotate(&Vector2::new(-x as f32, -y as f32));
+                }
+            }
             DeviceEvent::MouseWheel { .. } => {}
             DeviceEvent::Motion { .. } => {}
             DeviceEvent::Button { .. } => {}

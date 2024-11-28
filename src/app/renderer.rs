@@ -152,9 +152,16 @@ impl Renderer {
     pub fn on_update(
         &mut self,
         window: Arc<winit::window::Window>,
+        wgpu: Ref<Wgpu>,
         delta_time: Duration,
+        camera: &Camera,
         mut gui_state: RefMut<GuiState>,
     ) {
+        let (width, height) = window.inner_size().into();
+        self.render_context.update(camera, width, height);
+        self.render_context_uniform_buffer
+            .write(&wgpu, bytemuck::bytes_of(&self.render_context));
+
         self.egui_renderer.update(&window, delta_time, gui_state.deref_mut())
     }
 
