@@ -1,7 +1,7 @@
 use crate::app::camera::Camera;
 use crate::app::egui_renderer::EguiRenderer;
 use crate::app::gui_state::GuiState;
-use crate::rendering::primitive::Primitive::Quad;
+use crate::rendering::primitive::sphere::SphereData;
 use crate::rendering::primitive::*;
 use crate::rendering::wgpu::*;
 use crate::rendering::RenderContext;
@@ -10,7 +10,9 @@ use egui_winit::EventResponse;
 use nalgebra::Point4;
 use std::borrow::Cow;
 use std::cell::{Ref, RefMut};
+use std::cmp;
 use std::ops::DerefMut;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use wgpu::*;
@@ -24,7 +26,9 @@ pub struct Renderer {
 
     render_context: RenderContext,
     render_context_uniform_buffer: WgpuBindBuffer,
+    primitives_storage_buffer: WgpuBindBuffer,
     quads_storage_buffer: WgpuBindBuffer,
+    spheres_storage_buffer: WgpuBindBuffer,
     pixel_color_storage_buffer: WgpuBindBuffer,
     egui_renderer: EguiRenderer,
 }
@@ -50,7 +54,7 @@ impl Renderer {
         window: Arc<winit::window::Window>,
         camera: &Camera,
         renderer_parameters: &RendererParameters,
-        primitives: &Vec<Primitive>,
+        primitives: &[Rc<Primitive>],
     ) -> Self {
         let (width, height) = window.inner_size().into();
         let render_context = RenderContext::new(camera, width, height, renderer_parameters.samples_per_pixel);
@@ -65,22 +69,57 @@ impl Renderer {
         );
         render_context_uniform_buffer.write(&wgpu, bytemuck::bytes_of(&render_context));
 
-        let mut quads = Vec::new();
-        for primitive in primitives {
-            #[allow(irrefutable_let_patterns)]
-            if let Quad(quad) = primitive {
-                quads.push(*quad);
+        let mut primitives_data = Vec::new();
+        let mut quads_data = Vec::new();
+        let mut spheres_data = Vec::new();
+
+        for primitive in primitives.iter().map(Rc::as_ref) {
+            match primitive {
+                Primitive::Quad(quad) => {
+                    primitives_data.push(PrimitiveData {
+                        primitive_type: (*primitive).into(),
+                        primitive_id: quads_data.len() as u32,
+                    });
+                    quads_data.push(*quad);
+                }
+                Primitive::Sphere(sphere) => {
+                    primitives_data.push(PrimitiveData {
+                        primitive_type: (*primitive).into(),
+                        primitive_id: spheres_data.len() as u32,
+                    });
+                    spheres_data.push(*sphere);
+                }
             }
         }
-        let quads_storage_buffer = WgpuBindBuffer::new(
+        let primitives_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
             "primitive storage",
-            (size_of::<PrimitiveQuad>() * quads.len()) as BufferAddress,
+            (size_of::<PrimitiveData>() * cmp::max(primitives_data.len(), 1)) as BufferAddress,
             BufferUsages::STORAGE | BufferUsages::COPY_DST,
             ShaderStages::COMPUTE,
             true,
         );
-        quads_storage_buffer.write(&wgpu, bytemuck::cast_slice(quads.as_slice()));
+        primitives_storage_buffer.write(&wgpu, bytemuck::cast_slice(primitives_data.as_slice()));
+
+        let quads_storage_buffer = WgpuBindBuffer::new(
+            &wgpu,
+            "quad storage",
+            (size_of::<QuadData>() * cmp::max(quads_data.len(), 1)) as BufferAddress,
+            BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            ShaderStages::COMPUTE,
+            true,
+        );
+        quads_storage_buffer.write(&wgpu, bytemuck::cast_slice(quads_data.as_slice()));
+
+        let spheres_storage_buffer = WgpuBindBuffer::new(
+            &wgpu,
+            "sphere storage",
+            (size_of::<SphereData>() * cmp::max(spheres_data.len(), 1)) as BufferAddress,
+            BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            ShaderStages::COMPUTE,
+            true,
+        );
+        spheres_storage_buffer.write(&wgpu, bytemuck::cast_slice(spheres_data.as_slice()));
 
         let pixel_color_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
@@ -98,7 +137,9 @@ impl Renderer {
             clear_color: renderer_parameters.clear_color,
             render_context,
             render_context_uniform_buffer,
+            primitives_storage_buffer,
             quads_storage_buffer,
+            spheres_storage_buffer,
             pixel_color_storage_buffer,
             egui_renderer,
         }
@@ -116,7 +157,9 @@ impl Renderer {
             &[
                 &self.render_context_uniform_buffer,
                 &self.pixel_color_storage_buffer,
+                &self.primitives_storage_buffer,
                 &self.quads_storage_buffer,
+                &self.spheres_storage_buffer,
                 &surface,
             ],
         );

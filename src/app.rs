@@ -45,7 +45,7 @@ pub struct App {
     gui_state: RefCell<GuiState>,
     #[getset(get = "pub")]
     camera: Camera,
-    scene: Scene,
+    scene: RefCell<Scene>,
 
     allow_input: bool,
     key_records: HashMap<KeyCode, PressRecord>,
@@ -75,15 +75,15 @@ impl App {
         ];
         let key_records: HashMap<KeyCode, PressRecord> = keys.into_iter().collect();
 
-        let scene = Scene::scene_cube();
+        let scene = RefCell::new(Scene::scene_primitives());
 
         let gui_state = RefCell::new(GuiState {
             checkbox: false,
             samples_per_pixel: 1,
             max_ray_bounces: 0,
             camera_parameter: CameraParameter {
-                position: scene.camera_initial_position,
-                look_at: scene.camera_initial_look_at,
+                position: scene.borrow().camera_initial_position,
+                look_at: scene.borrow().camera_initial_look_at,
                 vfov: 45.0,
                 up: Vector3::y_axis(),
                 focus_distance: 1.0,
@@ -397,12 +397,15 @@ impl App {
             clear_color: Point4::new(0.0, 0.0, 0.0, 1.0),
         };
 
+        let mut primitives = Vec::new();
+        self.scene_mut().primitives(&mut primitives);
+
         self.renderer = Some(RefCell::new(Renderer::new(
             self.wgpu(),
             self.window(),
             self.camera(),
             &render_parameter,
-            &self.scene.primitives(),
+            &primitives,
         )));
     }
 
@@ -434,5 +437,11 @@ impl App {
     }
     fn gui_state_mut(&self) -> RefMut<'_, GuiState> {
         self.gui_state.borrow_mut()
+    }
+    fn scene(&self) -> Ref<'_, Scene> {
+        self.scene.borrow()
+    }
+    fn scene_mut(&self) -> RefMut<'_, Scene> {
+        self.scene.borrow_mut()
     }
 }

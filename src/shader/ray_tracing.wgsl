@@ -1,3 +1,37 @@
+/*--------------------------------------- Constants ---------------------------------------------*/
+
+const PI = 3.14159265358979323846264338327950288f;
+const ZERO_TOLERANCE = 1e-8;
+
+const MAX = 0x1.fffffep+127f;
+const MIN = -MAX;
+
+/*---------------------------------------- Privates ---------------------------------------------*/
+
+var<private> pixel_position: vec2<f32>;
+
+/*---------------------------------------- Bindings ---------------------------------------------*/
+
+@group(0) @binding(0)
+var<uniform> context: RenderContext;
+
+@group(0) @binding(1)
+var<storage, read_write> pixel_color: array<array<f32, 3>>; // 这里如果内部使用 vec3 会浪费 4 个字节用于对齐
+
+@group(0) @binding(2)
+var<storage, read> primitives: array<Primitive>;
+
+@group(0) @binding(3)
+var<storage, read> quads: array<Quad>;
+
+@group(0) @binding(4)
+var<storage, read> spheres: array<Sphere>;
+
+@group(0) @binding(5)
+var surface: texture_storage_2d<rgba8unorm, write>;
+
+/*----------------------------------------- Ray Tracing -----------------------------------------*/
+
 @compute @workgroup_size(16, 16)
 fn compute_main(
     @builtin(global_invocation_id)
@@ -23,7 +57,52 @@ fn compute_main(
     textureStore(surface, gid.xy, vec4(linear_to_srgb(color), 1.0));
 }
 
-var<private> pixel_position: vec2<f32>;
+fn get_ray() -> Ray {
+    let offset = sample_unit_square_stratified();
+    let pixel_world_position = context.pixel_origin
+                                + (pixel_position.x + offset.x) * context.pixel_delta_u
+                                + (pixel_position.y + offset.y) * context.pixel_delta_v;
+
+    var ray_origin: vec3<f32>;
+    if context.defocus_angle <= 0 {
+        ray_origin = context.camera_position;
+    } else {
+        ray_origin = defocus_disk_sample();
+    }
+
+    let ray_direction = normalize(pixel_world_position - ray_origin);
+
+    return Ray(ray_origin, ray_direction);
+}
+
+fn defocus_disk_sample() -> vec3<f32> {
+    let s = sample_unit_disk();
+    return context.camera_position + s.x * context.defocus_disk_u + s.y * context.defocus_disk_v;
+}
+
+fn ray_color(
+    ray: ptr<function, Ray>,
+) -> vec3<f32> {
+    let n = arrayLength(&primitives);
+
+    var hit_record: HitRecord;
+    var interval = Interval_init_2f(0.001, MAX);
+    var scatter_record: ScatterRecord;
+
+    for (var i: u32 = 0; i < n; i++) {
+        let primitive_type = primitives[i].primitive_type;
+        let primitive_id = primitives[i].primitive_id;
+
+        if Primitive_hit(primitive_type, primitive_id, ray, &interval, &hit_record) {
+            Material_scatter(quads[i].material_type, quads[i].material_id,
+                             ray, &hit_record, &scatter_record);
+            interval.max = hit_record.ray_t;
+        }
+    }
+    return scatter_record.attenuation;
+}
+
+/*-------------------------------------- Render Context -----------------------------------------*/
 
 struct RenderContext {
     width: u32,
@@ -41,44 +120,126 @@ struct RenderContext {
     sample_id: u32,
     camera_position: vec3<f32>,
 }
-@group(0) @binding(0)
-var<uniform> context: RenderContext;
 
-@group(0) @binding(1)
-var<storage, read_write> pixel_color: array<array<f32, 3>>; // 这里如果内部使用 vec3 会浪费 4 个字节用于对齐
+/*---------------------------------------- Materials --------------------------------------------*/
 
-@group(0) @binding(2)
-var<storage, read> quads: array<Quad>;
-
-@group(0) @binding(3)
-var surface: texture_storage_2d<rgba8unorm, write>;
-
-fn ray_color(
-    ray: ptr<function, Ray>,
-) -> vec3<f32> {
-    let n = arrayLength(&quads);
-    var hit_record: HitRecord;
-    var interval = Interval_init_2f(0.001, MAX);
-    for (var i: u32 = 0; i < n; i++) {
-        if Quad_hit(i, ray, &interval, &hit_record) {
-            return vec3<f32>(1.0, 1.0, 1.0);
+fn Material_scatter(
+    material_type: u32,
+    material_id: u32,
+    ray_in: ptr<function, Ray>,
+    hit_record: ptr<function, HitRecord>,
+    scatter_record: ptr<function, ScatterRecord>
+) -> bool {
+    switch (material_type) {
+        case 0u: {
+            return DebugNormal_scatter(material_id, ray_in, hit_record, scatter_record);
+        }
+        default: {
+            return false;
         }
     }
-    return vec3<f32>(0.0, 0.0, 0.0);
 }
 
-/*----------------------------------------- Constants -------------------------------------------*/
+fn DebugNormal_scatter(
+    material_id: u32,
+    ray_in: ptr<function, Ray>,
+    hit_record: ptr<function, HitRecord>,
+    scatter_record: ptr<function, ScatterRecord>
+) -> bool  {
+    let attenuation = (*hit_record).normal * 0.5 + 0.5;
+    (*scatter_record).attenuation = attenuation;
+    return true;
+}
 
-const PI = 3.1415927f;
-const ZERO_TOLERANCE = 1e-8;
-// 这两个值是从 Rust 标准库抄来的，浏览器上无法编译
-//const MAX = 3.40282347e+38f;
-//const MIN = -3.40282347e+38f;
-// 最低有效位 -1
-const MAX = 3.40282346e+38f;
-const MIN = -3.40282346e+38f;
+/*------------------------------------- Scatter Record ------------------------------------------*/
 
-/*------------------------------------------- Quad ----------------------------------------------*/
+struct ScatterRecord {
+    attenuation: vec3<f32>
+}
+
+/*----------------------------------------- Primitive --------------------------------------------*/
+
+struct Primitive {
+    primitive_type: u32,
+    primitive_id: u32,
+}
+
+fn Primitive_hit(
+    primitive_type: u32,
+    primitive_id: u32,
+    ray: ptr<function, Ray>,
+    interval: ptr<function, Interval>,
+    hit_record: ptr<function, HitRecord>,
+) -> bool {
+    switch (primitive_type) {
+        case 0u: { // Quad
+            return Quad_hit(primitive_id, ray, interval, hit_record);
+        }
+        case 1u: { // Sphere
+            return Sphere_hit(primitive_id, ray, interval, hit_record);
+        }
+        default: {
+            return false;
+        }
+    }
+}
+
+struct Sphere {
+    center: vec3<f32>,
+    radius: f32,
+    material_type: u32,
+    material_id: u32,
+}
+
+fn Sphere_hit(
+    id: u32,
+    ray: ptr<function, Ray>,
+    interval: ptr<function, Interval>,
+    hit_record: ptr<function, HitRecord>,
+) -> bool {
+    let sphere: ptr<storage, Sphere, read> = &spheres[id];
+
+    let oc = (*sphere).center - (*ray).origin;
+    let a = Vec3f32_length_squared((*ray).direction);
+    let h = dot((*ray).direction, oc);
+    let c = Vec3f32_length_squared(oc) - (*sphere).radius * (*sphere).radius;
+
+    let discriminant = h * h - a * c;
+    if discriminant < 0 {
+        return false;
+    }
+
+    let sqrt_discriminant = sqrt(discriminant);
+
+    // Find the nearest root that lies in the acceptable range.
+    var root = (h - sqrt_discriminant) / a;
+    if !Interval_surrounds(interval, root) {
+        root = (h + sqrt_discriminant) / a;
+        if !Interval_surrounds(interval, root) {
+            return false;
+        }
+    }
+
+    (*hit_record).ray_t = root;
+    (*hit_record).position = Ray_at(ray, root);
+
+    let outward_normal = ((*hit_record).position - (*sphere).center) / (*sphere).radius;
+    (*hit_record).normal = outward_normal;
+    HitRecord_set_face_normal(hit_record, ray, outward_normal);
+    (*hit_record).uv = Sphere_uv(outward_normal);
+
+    (*hit_record).material_id = (*sphere).material_id;
+    (*hit_record).material_type = (*sphere).material_type;
+
+    return true;
+}
+
+// position 是单位圆上的一个位置
+fn Sphere_uv(position: vec3<f32>) -> vec2<f32> {
+    let theta = acos(-position.y);
+    let phi = atan2(-position.z, position.x) + PI;
+    return vec2<f32>(phi / (2 * PI), theta / PI);
+}
 
 struct Quad {
     bottom_left: vec3<f32>,
@@ -88,6 +249,7 @@ struct Quad {
     up: vec3<f32>,
     d: f32,       // quad 所在平面的方程 ax + by + cz + d 中的 d
     normal: vec3<f32>,
+    material_type: u32,
     w: vec3<f32>  // w 是将 quad 所在平面上的点转换到 quad 定义的坐标系（bottom_left, right, up）上时需要用到的变量
                   // w = normal / dot(normal, normal) ，详见 Ray Tracing: The Next Week, p59
 }
@@ -124,13 +286,15 @@ fn Quad_hit(
 
     (*hit_record).ray_t = t;
     (*hit_record).position = intersection;
+    (*hit_record).normal = (*quad).normal;
     (*hit_record).material_id = (*quad).material_id;
+    (*hit_record).material_type = (*quad).material_type;
 
     // 如果这里的第 3 个参数传入指针，就应该是 &quad.normal ，但这种写法要求支持 WGSL 扩展 unrestricted_pointer_parameters
     // https://www.w3.org/TR/WGSL/#language_extension-unrestricted_pointer_parameters
     // 浏览器是支持的，但 wgpu 没有在其他平台上实现。
     //
-    // 如果在不支持的平台上在这里用指针，会报一个奇怪的错：
+    // 在不支持的平台上在这里用指针会报一个奇怪的错：
     // internal error: entered unreachable code: Expression [50] is not cached!
     HitRecord_set_face_normal(hit_record, ray, (*quad).normal);
 
@@ -151,8 +315,7 @@ fn Quad_is_interior(
         return false;
     }
 
-    (*hit_record).u = alpha;
-    (*hit_record).v = beta;
+    (*hit_record).uv = vec2<f32>(alpha, beta);
 
     return true;
 }
@@ -164,8 +327,8 @@ struct HitRecord {
     ray_t: f32,
     normal: vec3<f32>,
     material_id: u32,
-    u: f32,
-    v: f32,
+    uv: vec2<f32>,
+    material_type: u32,
     is_front_face: bool,
 }
 
@@ -241,8 +404,8 @@ fn Interval_clamp(s: ptr<function, Interval>, x: f32) -> f32 {
     return x;
 }
 
-fn Interval_expand(s: ptr<function, Interval>, delta: f32) {
-    let padding = delta / 2.0;
+fn Interval_expand(s: ptr<function, Interval>, DELTA: f32) {
+    let padding = DELTA / 2.0;
 
     (*s).min = (*s).min - padding;
     (*s).max = (*s).max + padding;
@@ -264,35 +427,11 @@ fn Ray_at(s: ptr<function, Ray>, t: f32) -> vec3<f32> {
     return (*s).origin + t * (*s).direction;
 }
 
-fn get_ray() -> Ray {
-    let offset = sample_unit_square_stratified();
-    let pixel_world_position = context.pixel_origin
-                                + (pixel_position.x + offset.x) * context.pixel_delta_u
-                                + (pixel_position.y + offset.y) * context.pixel_delta_v;
-
-    var ray_origin: vec3<f32>;
-    if context.defocus_angle <= 0 {
-        ray_origin = context.camera_position;
-    } else {
-        ray_origin = defocus_disk_sample();
-    }
-
-    let ray_direction = normalize(pixel_world_position - ray_origin);
-
-    return Ray(ray_origin, ray_direction);
-}
-
-fn defocus_disk_sample() -> vec3<f32> {
-    let s = sample_unit_disk();
-    return context.camera_position + s.x * context.defocus_disk_u + s.y * context.defocus_disk_v;
-}
-
 /*------------------------------------------- Sampling ------------------------------------------*/
 
 fn sample_unit_disk() -> vec2<f32> {
     let phi = 2 * PI * random();
     let r = sqrt(random());
-
     return vec2<f32>(cos(phi), sin(phi)) * r;
 }
 
@@ -309,6 +448,12 @@ fn sample_unit_square_stratified() -> vec2<f32> {
 
 fn sample_unit_square() -> vec2<f32> {
     return vec2<f32>(random(), random()) - 0.5;
+}
+
+/*------------------------------------------ Vec3 -----------------------------------------------*/
+
+fn Vec3f32_length_squared(x: vec3<f32>) -> f32 {
+    return x.x * x.x + x.y * x.y + x.z * x.z;
 }
 
 /*---------------------------------- Random Number Generation -----------------------------------*/
@@ -338,7 +483,6 @@ fn random() -> f32 {
     random_state.z4 = lcg_step(random_state.r, 1664525u, 1013904223u);        // p4 = 2^32
     random_state.r = random_state.z1 ^ random_state.z2 ^ random_state.z3 ^ random_state.z4;
 
-    // 论文里是这个数，但实际上 f32 只能表示 7 到 8 个十进制位
     return 2.3283064365387e-10f * f32(random_state.r); // [0, 1]
 }
 
@@ -362,7 +506,6 @@ fn seed(id: u32) -> u32  {
 }
 
 /*------------------------------------- sRGB Color Space ----------------------------------------*/
-
 
 fn linear_to_srgb(color: vec3<f32>) -> vec3<f32> {
     // https://gamedev.stackexchange.com/questions/92015/optimized-linear-to-srgb-glsl

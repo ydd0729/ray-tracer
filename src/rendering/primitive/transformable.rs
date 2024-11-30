@@ -1,5 +1,7 @@
+use crate::rendering::aabb::AxisAlignedBoundingBox;
 use crate::rendering::primitive::{Primitive, PrimitiveProvider};
 use nalgebra::*;
+use std::rc::Rc;
 
 pub trait Transformable {
     fn translate(&mut self, translation: Translation3<f32>);
@@ -29,7 +31,7 @@ impl TransformableCollection {
         self.objects.push(Box::new(object));
     }
 
-    pub fn add_vec<T: TransformablePrimitiveProvider + 'static>(&mut self, objects: Vec<T>) {
+    pub fn add_all<T: TransformablePrimitiveProvider + 'static>(&mut self, objects: Vec<T>) {
         for object in objects {
             self.add(object);
         }
@@ -57,7 +59,11 @@ impl Transformable for TransformableCollection {
 }
 
 impl PrimitiveProvider for TransformableCollection {
-    fn primitives(&self) -> Vec<Primitive> {
-        self.objects.iter().flat_map(|obj| obj.primitives()).collect()
+    fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>) {
+        self.objects.iter_mut().for_each(|object| object.primitives(primitives));
+    }
+
+    fn bounding_box(&mut self, boxes: &mut Vec<Rc<AxisAlignedBoundingBox>>) {
+        self.objects.iter_mut().for_each(|object| object.bounding_box(boxes));
     }
 }
