@@ -9,6 +9,7 @@ pub enum MaterialType {
     DebugNormal,
     Lambertian,
     DiffuseLight,
+    Dielectric
 }
 
 pub trait Material {
@@ -98,6 +99,27 @@ impl DiffuseLight {
 impl Material for DiffuseLight {
     fn material_type(&self) -> MaterialType {
         MaterialType::DiffuseLight
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct Dielectric {
+    pub reflection_index: f32,
+}
+
+impl Dielectric {
+    pub fn new(reflection_index: f32) -> Self {
+        Self { reflection_index }
+    }
+}
+
+impl Material for Dielectric {
+    fn material_type(&self) -> MaterialType {
+        MaterialType::Dielectric
     }
     fn as_any(&self) -> &dyn Any {
         self

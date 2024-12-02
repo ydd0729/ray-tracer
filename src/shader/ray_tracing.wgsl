@@ -45,6 +45,9 @@ var<storage, read> lambertian_materials: array<Lambertian>;
 var<storage, read> diffuse_light_materials: array<DiffuseLight>;
 
 @group(0) @binding(8)
+var<storage, read> dielectric_materials: array<Dielectric>;
+
+@group(0) @binding(9)
 var surface: texture_storage_2d<rgba8unorm, write>;
 
 /*----------------------------------------- Ray Tracing -----------------------------------------*/
@@ -145,7 +148,7 @@ fn ray_color(
         }
 
         if !hit_record.hit {
-            let background = vec3f(0.1, 0.1, 0.1); // TODO
+            let background = vec3f(0.0, 0.0, 0.0); // TODO
             return resolve_ray_color(stack_id, background);
         }
 
@@ -297,6 +300,9 @@ fn Material_scatter(
         case 1u: { // Lambertian
             return Lambertian_scatter(material_id, ray_in, hit_record, scatter_record);
         }
+        case 3u: { // Dielectric
+            return Dielectric_scatter(material_id, ray_in, hit_record, scatter_record);
+        }
         default: {
             return false;
         }
@@ -441,6 +447,57 @@ fn random_cosine_direction() -> vec3f {
     let y = sqrt(1 - xi2);
 
     return vec3f(x, y, z);
+}
+
+/*------------------------------------- Dielectric Material -------------------------------------*/
+
+struct Dielectric {
+    refraction_index: f32
+}
+
+fn Dielectric_scatter(
+    material_id: u32,
+    ray_in: ptr<function, Ray>,
+    hit_record: ptr<function, HitRecord>,
+    scatter_record: ptr<function, ScatterRecord>
+) -> bool {
+    let dielectric = &dielectric_materials[material_id];
+
+    (*scatter_record).attenuation = vec3f(1.0, 1.0, 1.0);
+    (*scatter_record).skip_pdf = true;
+
+    var refraction_index = (*dielectric).refraction_index;
+    if (*hit_record).is_front_face {
+        refraction_index = 1.0 / (*dielectric).refraction_index;
+    }
+
+    let in_direction = normalize((*ray_in).direction);
+    let cos_theta = min(dot(-in_direction, (*hit_record).normal), 1.0);
+    let sin_theta = sqrt(1 - pow(cos_theta, 2.0));
+
+    let cannot_refract = refraction_index * sin_theta > 1.0;
+
+    var out_direction: vec3f;
+    if cannot_refract || Dielectric_reflectance(material_id, cos_theta, refraction_index) > randomf() {
+        out_direction = reflect(in_direction, (*hit_record).normal);
+    } else {
+        out_direction = refract(in_direction, (*hit_record).normal, refraction_index);
+    }
+
+    (*scatter_record).skip_pdf_ray = Ray_init((*hit_record).position, out_direction);
+    return true;
+}
+
+fn Dielectric_reflectance(
+    material_id: u32,
+    cosine: f32,
+    refraction_index: f32
+) -> f32 {
+    let dielectric = &dielectric_materials[material_id];
+
+    var r0 = (1 - (*dielectric).refraction_index) / (1 + (*dielectric).refraction_index);
+    r0 = pow(r0, 2.0);
+    return r0 + (1 - r0) * pow((1 - cosine), 5.0);
 }
 
 /*----------------------------------- Diffuse Light Material ------------------------------------*/
@@ -761,9 +818,9 @@ fn HitRecord_set_face_normal(
     outward_normal: vec3f
 ) {
     (*s).is_front_face = (dot((*ray).direction, outward_normal) < 0);
-    // if !(*s).is_front_face {
-    //     (*s).normal = -(*s).normal;
-    // }
+    if !(*s).is_front_face {
+        (*s).normal = -(*s).normal;
+    }
 }
 
 /*----------------------------------------- Interval --------------------------------------------*/
@@ -850,12 +907,12 @@ struct Ray {
 }
 
 fn Ray_init(
-    origin: ptr<function, vec3f>,
-    direction: ptr<function, vec3f>,
+    origin: vec3f,
+    direction: vec3f,
 ) -> Ray {
     var ray: Ray;
-    ray.origin = *origin;
-    ray.direction = *direction;
+    ray.origin = origin;
+    ray.direction = direction;
     return ray;
 }
 
@@ -1010,4 +1067,15 @@ fn outer_product(a: vec3f, b: vec3f) -> mat3x3f {
     let c2 = b.y * a;
     let c3 = b.z * a;
     return mat3x3f(c1, c2, c3);
+}
+
+fn reflect(v: vec3f, n: vec3f) -> vec3f {
+    return v - 2 * dot(v, n) * n;
+}
+
+fn refract(uv: vec3f, n: vec3f, etai_over_etat: f32) -> vec3f {
+    let cos_theta = min(dot(-uv, n), 1.0);
+    let r_out_perp = etai_over_etat * (uv + cos_theta * n);
+    let r_out_parallel = -sqrt(abs(1.0 - length_squared(r_out_perp))) * n;
+    return r_out_perp + r_out_parallel;
 }

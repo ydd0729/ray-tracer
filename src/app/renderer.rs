@@ -1,6 +1,7 @@
 use crate::app::camera::Camera;
 use crate::app::egui_renderer::EguiRenderer;
 use crate::app::gui_state::GuiState;
+use crate::rendering::material::Dielectric;
 use crate::rendering::material::DiffuseLight;
 use crate::rendering::material::Lambertian;
 use crate::rendering::material::MaterialList;
@@ -34,6 +35,7 @@ pub struct Renderer {
     spheres_storage_buffer: WgpuBindBuffer,
     lambertian_materials_storage_buffer: WgpuBindBuffer,
     diffuse_light_materials_storage_buffer: WgpuBindBuffer,
+    dielectric_materials_storage_buffer: WgpuBindBuffer,
     pixel_color_storage_buffer: WgpuBindBuffer,
     egui_renderer: EguiRenderer,
     should_rerender: bool,
@@ -145,6 +147,7 @@ impl Renderer {
 
         let mut lambertian_materials = Vec::new();
         let mut diffuse_light_materials = Vec::new();
+        let mut dielectric_materials = Vec::new();
         for (material_type, materials) in parameters.materials.map() {
             match material_type {
                 MaterialType::DebugNormal => (),
@@ -158,6 +161,12 @@ impl Renderer {
                     &mut materials
                         .iter()
                         .map(|material| material.as_any().downcast_ref::<DiffuseLight>().unwrap().clone())
+                        .collect(),
+                ),
+                MaterialType::Dielectric => dielectric_materials.append(
+                    &mut materials
+                        .iter()
+                        .map(|material| material.as_any().downcast_ref::<Dielectric>().unwrap().clone())
                         .collect(),
                 ),
             }
@@ -182,6 +191,16 @@ impl Renderer {
         );
         diffuse_light_materials_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(&diffuse_light_materials));
 
+        let dielectric_materials_storage_buffer = WgpuBindBuffer::new(
+            &wgpu,
+            "dielectric materials storage",
+            (size_of::<SphereData>() * cmp::max(dielectric_materials.len(), 1)) as BufferAddress,
+            BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            ShaderStages::COMPUTE,
+            true,
+        );
+        dielectric_materials_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(&dielectric_materials));
+
         let pixel_color_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
             "pixel color storage",
@@ -202,6 +221,7 @@ impl Renderer {
             spheres_storage_buffer,
             lambertian_materials_storage_buffer,
             diffuse_light_materials_storage_buffer,
+            dielectric_materials_storage_buffer,
             pixel_color_storage_buffer,
             egui_renderer,
             samples_per_pixel: parameters.samples_per_pixel,
@@ -222,8 +242,6 @@ impl Renderer {
             info!("{:?}", self.render_context.sample_id);
         }
 
-        
-
         self.render_context_uniform_buffer.write(
             &wgpu,
             mem::offset_of!(RenderContext, sample_id),
@@ -243,6 +261,7 @@ impl Renderer {
                 &self.spheres_storage_buffer,
                 &self.lambertian_materials_storage_buffer,
                 &self.diffuse_light_materials_storage_buffer,
+                &self.dielectric_materials_storage_buffer,
                 &surface,
             ],
         );

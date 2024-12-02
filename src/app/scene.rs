@@ -1,6 +1,6 @@
 use crate::math::degree_to_radian;
 use crate::rendering::aabb::AxisAlignedBoundingBox;
-use crate::rendering::material::{DebugNormal, DiffuseLight, Lambertian, MaterialList};
+use crate::rendering::material::{DebugNormal, Dielectric, DiffuseLight, Lambertian, MaterialList};
 use crate::rendering::mesh::Mesh;
 use crate::rendering::primitive::sphere::Sphere;
 use crate::rendering::primitive::{Primitive, Quad, RenderObjectList, Transformable};
@@ -150,6 +150,7 @@ impl Scene {
         let lambertian_white = materials.add(Box::new(Lambertian::new(Point3::new(0.73, 0.73, 0.73))));
         let lambertian_green = materials.add(Box::new(Lambertian::new(Point3::new(0.12, 0.45, 0.15))));
         let light = materials.add(Box::new(DiffuseLight::new(Point3::new(15.0, 15.0, 15.0))));
+        let dielectric = materials.add(Box::new(Dielectric::new(1.5)));
 
         let mut objects = RenderObjectList::new();
 
@@ -193,7 +194,7 @@ impl Scene {
         objects.add(Sphere::new(
             Point3::new(190.0, 90.0, 190.0),
             90.0,
-            lambertian_white,
+            dielectric,
             true,
         ));
 
