@@ -30,7 +30,7 @@ impl WgpuVertexBuffer {
     }
 
     pub fn write_vertex(&self, wgpu: &Wgpu, data: &[Vertex]) {
-        self.buffer.write(wgpu, bytemuck::cast_slice(data));
+        self.buffer.write(wgpu,0, bytemuck::cast_slice(data));
     }
 
     pub fn layout(&self) -> VertexBufferLayout {

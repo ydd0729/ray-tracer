@@ -1,11 +1,17 @@
-use crate::rendering::material::Material;
+use crate::rendering::material::MaterialHandle;
 use crate::rendering::primitive::quad::Quad;
-use crate::rendering::primitive::transformable::{Transformable, TransformableCollection};
+use crate::rendering::primitive::transformable::{RenderObjectList, Transformable};
 use nalgebra::*;
-use std::rc::Rc;
 
-impl TransformableCollection {
-    pub fn cube(center: Point3<f32>, x_extent: f32, y_extent: f32, z_extent: f32, material: Rc<dyn Material>) -> Self {
+impl RenderObjectList {
+    pub fn cube(
+        center: Point3<f32>,
+        x_extent: f32,
+        y_extent: f32,
+        z_extent: f32,
+        material: MaterialHandle,
+        important: bool,
+    ) -> Self {
         let half_x_extent = x_extent / 2.0;
         let half_y_extent = y_extent / 2.0;
         let half_z_extent = z_extent / 2.0;
@@ -14,7 +20,8 @@ impl TransformableCollection {
             center,
             Vector3::x() * x_extent,
             Vector3::y() * y_extent,
-            Rc::clone(&material),
+            material,
+            important,
         );
         front.translate(Translation3::new(0.0, 0.0, half_z_extent));
 
@@ -22,7 +29,8 @@ impl TransformableCollection {
             center,
             -Vector3::x() * x_extent,
             Vector3::y() * y_extent,
-            Rc::clone(&material),
+            material,
+            important,
         );
         back.translate(Translation3::new(0.0, 0.0, -half_z_extent));
 
@@ -30,7 +38,8 @@ impl TransformableCollection {
             center,
             -Vector3::z() * z_extent,
             Vector3::y() * y_extent,
-            Rc::clone(&material),
+            material,
+            important,
         );
         left.translate(Translation3::new(half_x_extent, 0.0, 0.0));
 
@@ -38,7 +47,8 @@ impl TransformableCollection {
             center,
             Vector3::z() * z_extent,
             Vector3::y() * y_extent,
-            Rc::clone(&material),
+            material,
+            important,
         );
         right.translate(Translation3::new(-half_x_extent, 0.0, 0.0));
 
@@ -46,7 +56,8 @@ impl TransformableCollection {
             center,
             -Vector3::x() * x_extent,
             Vector3::z() * z_extent,
-            Rc::clone(&material),
+            material,
+            important,
         );
         up.translate(Translation3::new(0.0, half_y_extent, 0.0));
 
@@ -54,11 +65,12 @@ impl TransformableCollection {
             center,
             Vector3::x() * x_extent,
             Vector3::z() * z_extent,
-            Rc::clone(&material),
+            material,
+            important,
         );
         bottom.translate(Translation3::new(0.0, -half_y_extent, 0.0));
 
-        let mut cube = TransformableCollection::new();
+        let mut cube = RenderObjectList::new();
         cube.add_all(vec![front, back, left, right, up, bottom]);
 
         cube

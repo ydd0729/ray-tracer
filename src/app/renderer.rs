@@ -1,16 +1,23 @@
 use crate::app::camera::Camera;
 use crate::app::egui_renderer::EguiRenderer;
 use crate::app::gui_state::GuiState;
+use crate::rendering::material::DiffuseLight;
+use crate::rendering::material::Lambertian;
+use crate::rendering::material::MaterialList;
+use crate::rendering::material::MaterialType;
 use crate::rendering::primitive::sphere::SphereData;
 use crate::rendering::primitive::*;
 use crate::rendering::wgpu::*;
 use crate::rendering::RenderContext;
 use crate::RAY_TRACING_SHADER;
+use bytemuck::offset_of;
 use egui_winit::EventResponse;
+use log::info;
 use nalgebra::Point4;
 use std::borrow::Cow;
 use std::cell::{Ref, RefMut};
 use std::cmp;
+use std::mem;
 use std::ops::DerefMut;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -19,45 +26,50 @@ use wgpu::*;
 use winit::dpi::PhysicalSize;
 
 pub struct Renderer {
-    #[allow(unused)]
-    max_ray_bounces: u32,
-    #[allow(unused)]
-    clear_color: Point4<f32>,
-
     render_context: RenderContext,
     render_context_uniform_buffer: WgpuBindBuffer,
     primitives_storage_buffer: WgpuBindBuffer,
+    important_indices_storage_buffer: WgpuBindBuffer,
     quads_storage_buffer: WgpuBindBuffer,
     spheres_storage_buffer: WgpuBindBuffer,
+    lambertian_materials_storage_buffer: WgpuBindBuffer,
+    diffuse_light_materials_storage_buffer: WgpuBindBuffer,
     pixel_color_storage_buffer: WgpuBindBuffer,
     egui_renderer: EguiRenderer,
+    should_rerender: bool,
+    samples_per_pixel: u32,
 }
 
-#[derive(Default)]
-pub struct RendererParameters {
+pub struct RendererParameters<'a> {
     pub samples_per_pixel: u32,
     pub max_ray_bounces: u32,
     pub max_width: u32,
     pub max_height: u32,
+    #[allow(unused)]
     pub clear_color: Point4<f32>,
+    pub window: Arc<winit::window::Window>,
+    pub camera: Ref<'a, Camera>,
+    pub primitives: &'a [Rc<Primitive>],
+    pub important_indices: &'a [u32],
+    pub materials: &'a MaterialList,
 }
 
-impl RendererParameters {
+impl<'a> RendererParameters<'a> {
     pub fn max_pixels(&self) -> u32 {
         self.max_width * self.max_height
     }
 }
 
 impl Renderer {
-    pub fn new(
-        wgpu: Ref<Wgpu>,
-        window: Arc<winit::window::Window>,
-        camera: &Camera,
-        renderer_parameters: &RendererParameters,
-        primitives: &[Rc<Primitive>],
-    ) -> Self {
-        let (width, height) = window.inner_size().into();
-        let render_context = RenderContext::new(camera, width, height, renderer_parameters.samples_per_pixel);
+    pub fn new(wgpu: Ref<Wgpu>, parameters: &RendererParameters) -> Self {
+        let (width, height) = parameters.window.inner_size().into();
+        let render_context = RenderContext::new(
+            &parameters.camera,
+            width,
+            height,
+            parameters.samples_per_pixel,
+            parameters.max_ray_bounces,
+        );
 
         let render_context_uniform_buffer = WgpuBindBuffer::new(
             &wgpu,
@@ -67,13 +79,13 @@ impl Renderer {
             ShaderStages::COMPUTE | ShaderStages::FRAGMENT,
             true,
         );
-        render_context_uniform_buffer.write(&wgpu, bytemuck::bytes_of(&render_context));
+        render_context_uniform_buffer.write(&wgpu, 0, bytemuck::bytes_of(&render_context));
 
         let mut primitives_data = Vec::new();
         let mut quads_data = Vec::new();
         let mut spheres_data = Vec::new();
 
-        for primitive in primitives.iter().map(Rc::as_ref) {
+        for primitive in parameters.primitives.iter().map(Rc::as_ref) {
             match primitive {
                 Primitive::Quad(quad) => {
                     primitives_data.push(PrimitiveData {
@@ -99,7 +111,17 @@ impl Renderer {
             ShaderStages::COMPUTE,
             true,
         );
-        primitives_storage_buffer.write(&wgpu, bytemuck::cast_slice(primitives_data.as_slice()));
+        primitives_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(primitives_data.as_slice()));
+
+        let important_indices_storage_buffer = WgpuBindBuffer::new(
+            &wgpu,
+            "important indices storage",
+            (size_of::<PrimitiveData>() * cmp::max(parameters.important_indices.len(), 1)) as BufferAddress,
+            BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            ShaderStages::COMPUTE,
+            true,
+        );
+        important_indices_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(parameters.important_indices));
 
         let quads_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
@@ -109,7 +131,7 @@ impl Renderer {
             ShaderStages::COMPUTE,
             true,
         );
-        quads_storage_buffer.write(&wgpu, bytemuck::cast_slice(quads_data.as_slice()));
+        quads_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(quads_data.as_slice()));
 
         let spheres_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
@@ -119,29 +141,71 @@ impl Renderer {
             ShaderStages::COMPUTE,
             true,
         );
-        spheres_storage_buffer.write(&wgpu, bytemuck::cast_slice(spheres_data.as_slice()));
+        spheres_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(spheres_data.as_slice()));
+
+        let mut lambertian_materials = Vec::new();
+        let mut diffuse_light_materials = Vec::new();
+        for (material_type, materials) in parameters.materials.map() {
+            match material_type {
+                MaterialType::DebugNormal => (),
+                MaterialType::Lambertian => lambertian_materials.append(
+                    &mut materials
+                        .iter()
+                        .map(|material| material.as_any().downcast_ref::<Lambertian>().unwrap().clone())
+                        .collect(),
+                ),
+                MaterialType::DiffuseLight => diffuse_light_materials.append(
+                    &mut materials
+                        .iter()
+                        .map(|material| material.as_any().downcast_ref::<DiffuseLight>().unwrap().clone())
+                        .collect(),
+                ),
+            }
+        }
+        let lambertian_materials_storage_buffer = WgpuBindBuffer::new(
+            &wgpu,
+            "lambertian materials storage",
+            (size_of::<SphereData>() * cmp::max(lambertian_materials.len(), 1)) as BufferAddress,
+            BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            ShaderStages::COMPUTE,
+            true,
+        );
+        lambertian_materials_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(&lambertian_materials));
+
+        let diffuse_light_materials_storage_buffer = WgpuBindBuffer::new(
+            &wgpu,
+            "diffuse light materials storage",
+            (size_of::<SphereData>() * cmp::max(diffuse_light_materials.len(), 1)) as BufferAddress,
+            BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            ShaderStages::COMPUTE,
+            true,
+        );
+        diffuse_light_materials_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(&diffuse_light_materials));
 
         let pixel_color_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
             "pixel color storage",
-            ((size_of::<f32>() * 3) as u32 * renderer_parameters.max_pixels()) as BufferAddress,
+            ((size_of::<f32>() * 3) as u32 * parameters.max_pixels()) as BufferAddress,
             BufferUsages::STORAGE,
             ShaderStages::COMPUTE | ShaderStages::FRAGMENT,
             false,
         );
 
-        let egui_renderer = EguiRenderer::new(&window, &wgpu.device, wgpu.surface_configuration.format);
+        let egui_renderer = EguiRenderer::new(&parameters.window, &wgpu.device, wgpu.surface_configuration.format);
 
         Self {
-            max_ray_bounces: renderer_parameters.max_ray_bounces,
-            clear_color: renderer_parameters.clear_color,
             render_context,
             render_context_uniform_buffer,
             primitives_storage_buffer,
+            important_indices_storage_buffer,
             quads_storage_buffer,
             spheres_storage_buffer,
+            lambertian_materials_storage_buffer,
+            diffuse_light_materials_storage_buffer,
             pixel_color_storage_buffer,
             egui_renderer,
+            samples_per_pixel: parameters.samples_per_pixel,
+            should_rerender: false,
         }
     }
 
@@ -149,6 +213,22 @@ impl Renderer {
         let mut encoder = wgpu.device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
+
+        if self.take_rerender() {
+            self.render_context.reset_sample_id();
+            info!("{:?}", self.render_context.sample_id);
+        } else if self.render_context.sample_id < self.render_context.samples_per_pixel {
+            self.render_context.increment_sample_id();
+            info!("{:?}", self.render_context.sample_id);
+        }
+
+        
+
+        self.render_context_uniform_buffer.write(
+            &wgpu,
+            mem::offset_of!(RenderContext, sample_id),
+            bytemuck::bytes_of(&self.render_context.sample_id),
+        );
 
         let ray_tracing_bind_group = WgpuBindGroup::new(
             &wgpu,
@@ -158,8 +238,11 @@ impl Renderer {
                 &self.render_context_uniform_buffer,
                 &self.pixel_color_storage_buffer,
                 &self.primitives_storage_buffer,
+                &self.important_indices_storage_buffer,
                 &self.quads_storage_buffer,
                 &self.spheres_storage_buffer,
+                &self.lambertian_materials_storage_buffer,
+                &self.diffuse_light_materials_storage_buffer,
                 &surface,
             ],
         );
@@ -186,10 +269,11 @@ impl Renderer {
         wgpu.queue.submit(Some(encoder.finish()));
     }
 
-    pub fn on_resize(&mut self, wgpu: Ref<Wgpu>, size: &PhysicalSize<u32>, camera: &Camera) {
-        self.render_context.update(camera, size.width, size.height);
+    pub fn on_resize(&mut self, wgpu: Ref<Wgpu>, size: &PhysicalSize<u32>, camera: Ref<Camera>) {
+        self.render_context.update(&camera, size.width, size.height);
         self.render_context_uniform_buffer
-            .write(&wgpu, bytemuck::bytes_of(&self.render_context));
+            .write(&wgpu, 0, bytemuck::bytes_of(&self.render_context));
+        self.should_rerender = true;
     }
 
     pub fn on_update(
@@ -197,13 +281,32 @@ impl Renderer {
         window: Arc<winit::window::Window>,
         wgpu: Ref<Wgpu>,
         delta_time: Duration,
-        camera: &Camera,
+        mut camera: RefMut<Camera>,
         mut gui_state: RefMut<GuiState>,
     ) {
+        if self.render_context.max_ray_bounces != gui_state.max_ray_bounces() {
+            self.render_context.max_ray_bounces = gui_state.max_ray_bounces();
+            self.render_context_uniform_buffer.write(
+                &wgpu,
+                offset_of!(RenderContext, max_ray_bounces),
+                bytemuck::bytes_of(&self.render_context.max_ray_bounces),
+            );
+            self.should_rerender = true;
+        }
+
+        if self.samples_per_pixel != gui_state.samples_per_pixel() {
+            self.samples_per_pixel = gui_state.samples_per_pixel();
+            self.should_rerender = true;
+        }
+
+        if camera.take_rerender() {
+            self.should_rerender = true;
+        }
+
         let (width, height) = window.inner_size().into();
-        self.render_context.update(camera, width, height);
+        self.render_context.update(&camera, width, height);
         self.render_context_uniform_buffer
-            .write(&wgpu, bytemuck::bytes_of(&self.render_context));
+            .write(&wgpu, 0, bytemuck::bytes_of(&self.render_context));
 
         self.egui_renderer.update(&window, delta_time, gui_state.deref_mut())
     }
@@ -214,5 +317,13 @@ impl Renderer {
         event: &winit::event::WindowEvent,
     ) -> EventResponse {
         self.egui_renderer.on_window_event(&window, event)
+    }
+
+    fn take_rerender(&mut self) -> bool {
+        if self.should_rerender {
+            self.should_rerender = false;
+            return true;
+        }
+        false
     }
 }

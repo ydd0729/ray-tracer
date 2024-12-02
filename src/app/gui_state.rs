@@ -1,4 +1,4 @@
-use crate::app::camera::CameraParameter;
+use crate::app::camera::CameraUpdateParameters;
 use egui::Ui;
 use getset::{CopyGetters, Getters};
 
@@ -13,7 +13,7 @@ pub struct GuiState {
     pub max_ray_bounces: u32,
 
     #[getset(get = "pub")]
-    pub camera_parameter: CameraParameter,
+    pub camera_update_parameters: CameraUpdateParameters,
 }
 
 impl GuiState {

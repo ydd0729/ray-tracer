@@ -1,20 +1,12 @@
-pub mod cube;
 pub mod quad;
 pub mod sphere;
 pub mod transformable;
 
 pub use quad::*;
-use std::rc::Rc;
 pub use transformable::*;
 
-use crate::rendering::aabb::AxisAlignedBoundingBox;
 use crate::rendering::primitive::sphere::SphereData;
 use bytemuck::{Pod, Zeroable};
-
-pub trait PrimitiveProvider {
-    fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>);
-    fn bounding_box(&mut self, boxes: &mut Vec<Rc<AxisAlignedBoundingBox>>);
-}
 
 #[derive(Debug, Copy, Clone)]
 pub enum Primitive {

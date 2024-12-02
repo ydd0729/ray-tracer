@@ -21,13 +21,14 @@ pub struct RenderContext {
     pub defocus_disk_v: Vector3<f32>, // Defocus disk vertical radius
     pub sample_id: u32,
     pub camera_position: Point3<f32>,
-    _padding: [u32; 1],
+    pub max_ray_bounces: u32,
 }
 
 impl RenderContext {
-    pub fn new(camera: &Camera, width: u32, height: u32, samples_per_pixel: u32) -> Self {
+    pub fn new(camera: &Camera, width: u32, height: u32, samples_per_pixel: u32, max_ray_bounces: u32) -> Self {
         let mut configuration = RenderContext::default();
         configuration.set_samples_per_pixel(samples_per_pixel);
+        configuration.max_ray_bounces = max_ray_bounces;
         configuration.update(camera, width, height);
 
         info!("{:?}", configuration);
@@ -43,7 +44,23 @@ impl RenderContext {
         self.samples_per_pixel = samples_per_pixel;
         let sample_grid_per_dimension = self.sample_grid_per_dimension();
         self.sample_grid_num = sample_grid_per_dimension.pow(2);
-        self.sample_grid_len = 1.0 / sample_grid_per_dimension as f32
+        self.sample_grid_len = 1.0 / sample_grid_per_dimension as f32;
+    }
+
+    pub fn set_sample_id(&mut self, sample_id: u32) {
+        self.sample_id = sample_id;
+        let sample_grid_per_dimension = self.sample_grid_per_dimension();
+        if sample_id < self.sample_grid_num {
+            self.sample_position = Point2::new(sample_id % sample_grid_per_dimension, sample_id / sample_grid_per_dimension);
+        }
+    }
+
+    pub fn reset_sample_id(&mut self) {
+        self.set_sample_id(0);
+    }
+
+    pub fn increment_sample_id(&mut self) {
+        self.set_sample_id(self.sample_id + 1);
     }
 
     fn sample_grid_per_dimension(&self) -> u32 {

@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 
+#[allow(unused)]
 struct BoundingVolumeTree {
     date: Vec<BoundingVolumeNode>,
 }

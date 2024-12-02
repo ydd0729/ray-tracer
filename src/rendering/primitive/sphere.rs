@@ -1,6 +1,7 @@
 use crate::rendering::aabb::AxisAlignedBoundingBox;
-use crate::rendering::material::Material;
-use crate::rendering::primitive::{Primitive, PrimitiveProvider, Transformable};
+use crate::rendering::material::MaterialHandle;
+use crate::rendering::mesh::Mesh;
+use crate::rendering::primitive::{Primitive, Transformable};
 use bytemuck::{Pod, Zeroable};
 use nalgebra::{Point3, Scale3, Translation3, UnitQuaternion, Vector3};
 use std::rc::Rc;
@@ -8,19 +9,23 @@ use std::rc::Rc;
 pub struct Sphere {
     center: Point3<f32>,
     radius: f32,
-    material: Rc<dyn Material>,
+    material_id: u32,
+    material_type: u32,
     primitive: Option<Rc<Primitive>>,
     bounding_box: Option<Rc<AxisAlignedBoundingBox>>,
+    important: bool,
 }
 
 impl Sphere {
-    pub fn new(center: Point3<f32>, radius: f32, material: Rc<dyn Material>) -> Self {
+    pub fn new(center: Point3<f32>, radius: f32, material: MaterialHandle, important: bool) -> Self {
         Self {
             center,
             radius,
-            material,
+            material_type: material.material_type,
+            material_id: material.material_id,
             primitive: None,
             bounding_box: None,
+            important,
         }
     }
 }
@@ -32,23 +37,27 @@ impl Transformable for Sphere {
         self.bounding_box = None;
     }
 
-    fn rotate(&mut self, rotation: UnitQuaternion<f32>) {
+    fn rotate(&mut self, _rotation: UnitQuaternion<f32>) {
         todo!()
     }
 
-    fn scale(&mut self, scale: Scale3<f32>) {
+    fn scale(&mut self, _scale: Scale3<f32>) {
         todo!()
     }
 }
 
-impl PrimitiveProvider for Sphere {
-    fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>) {
+impl Mesh for Sphere {
+    fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>, important_indices: &mut Vec<u32>) {
+        if self.important {
+            important_indices.push(important_indices.len() as u32);
+        }
+
         if self.primitive.is_none() {
             self.primitive = Some(Rc::new(Primitive::Sphere(SphereData::new(
                 self.center,
                 self.radius,
-                self.material.material_type(),
-                self.material.material_id(),
+                self.material_type,
+                self.material_id,
             ))));
         }
         primitives.push(Rc::clone(self.primitive.as_ref().unwrap()));

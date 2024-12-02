@@ -29,7 +29,7 @@ impl WgpuIndexBuffer {
     }
 
     pub fn write_index(&self, wgpu: &Wgpu, data: &[u32]) {
-        self.buffer.write(wgpu, bytemuck::cast_slice(data));
+        self.buffer.write(wgpu, 0,bytemuck::cast_slice(data));
     }
 
     pub const fn index_format() -> IndexFormat {

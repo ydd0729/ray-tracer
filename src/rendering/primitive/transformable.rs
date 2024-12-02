@@ -1,5 +1,6 @@
 use crate::rendering::aabb::AxisAlignedBoundingBox;
-use crate::rendering::primitive::{Primitive, PrimitiveProvider};
+use crate::rendering::mesh::Mesh;
+use crate::rendering::primitive::Primitive;
 use nalgebra::*;
 use std::rc::Rc;
 
@@ -9,36 +10,36 @@ pub trait Transformable {
     fn scale(&mut self, scale: Scale3<f32>);
 }
 
-pub trait TransformablePrimitiveProvider: Transformable + PrimitiveProvider {}
-impl<T: Transformable + PrimitiveProvider> TransformablePrimitiveProvider for T {}
+pub trait RenderObject: Transformable + Mesh {}
+impl<T: Transformable + Mesh> RenderObject for T {}
 
-pub struct TransformableCollection {
-    objects: Vec<Box<dyn TransformablePrimitiveProvider>>,
+pub struct RenderObjectList {
+    objects: Vec<Box<dyn RenderObject>>,
 }
 
-impl Default for TransformableCollection {
+impl Default for RenderObjectList {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl TransformableCollection {
+impl RenderObjectList {
     pub fn new() -> Self {
         Self { objects: Vec::new() }
     }
 
-    pub fn add<T: TransformablePrimitiveProvider + 'static>(&mut self, object: T) {
+    pub fn add<T: RenderObject + 'static>(&mut self, object: T) {
         self.objects.push(Box::new(object));
     }
 
-    pub fn add_all<T: TransformablePrimitiveProvider + 'static>(&mut self, objects: Vec<T>) {
+    pub fn add_all<T: RenderObject + 'static>(&mut self, objects: Vec<T>) {
         for object in objects {
             self.add(object);
         }
     }
 }
 
-impl Transformable for TransformableCollection {
+impl Transformable for RenderObjectList {
     fn translate(&mut self, translation: Translation3<f32>) {
         for object in &mut self.objects {
             object.translate(translation);
@@ -58,9 +59,11 @@ impl Transformable for TransformableCollection {
     }
 }
 
-impl PrimitiveProvider for TransformableCollection {
-    fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>) {
-        self.objects.iter_mut().for_each(|object| object.primitives(primitives));
+impl Mesh for RenderObjectList {
+    fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>, important_indices: &mut Vec<u32>) {
+        self.objects
+            .iter_mut()
+            .for_each(|object| object.primitives(primitives, important_indices));
     }
 
     fn bounding_box(&mut self, boxes: &mut Vec<Rc<AxisAlignedBoundingBox>>) {

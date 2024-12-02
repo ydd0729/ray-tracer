@@ -29,6 +29,8 @@ pub struct Camera {
     v: UnitVector3<f32>, // 相机朝向的上方
     #[getset(get = "pub")]
     w: UnitVector3<f32>, // 相机朝向的后方
+
+    should_rerender: bool,
 }
 
 impl Default for Camera {
@@ -45,13 +47,14 @@ impl Default for Camera {
             u: Vector3::x_axis(),
             v: Vector3::y_axis(),
             w: Vector3::z_axis(),
+            should_rerender: false,
         }
     }
 }
 
-pub struct CameraParameter {
-    pub position: Point3<f32>,
-    pub look_at: Point3<f32>,
+pub struct CameraParameters {
+    pub initial_position: Point3<f32>,
+    pub initial_look_at: Point3<f32>,
     pub vfov: f32,
     pub up: UnitVector3<f32>,
     pub focus_distance: f32,
@@ -60,11 +63,20 @@ pub struct CameraParameter {
     pub rotation_scale: Vector3<f32>,
 }
 
-impl Default for CameraParameter {
+#[derive(Default)]
+pub struct CameraUpdateParameters {
+    pub vfov: f32,
+    pub focus_distance: f32,
+    pub defocus_angle: f32,
+    pub movement_speed: f32,
+    pub rotation_scale: Vector3<f32>,
+}
+
+impl Default for CameraParameters {
     fn default() -> Self {
         Self {
-            position: Default::default(),
-            look_at: Default::default(),
+            initial_position: Default::default(),
+            initial_look_at: Default::default(),
             vfov: 0.0,
             up: Vector3::y_axis(),
             focus_distance: 0.0,
@@ -76,32 +88,41 @@ impl Default for CameraParameter {
 }
 
 impl Camera {
-    pub fn new(parameter: &CameraParameter) -> Self {
-        let rotation = UnitQuaternion::rotation_between(&Vector3::z_axis(), &(parameter.position - parameter.look_at))
-            // rotation_between 在两个方向共线且方向相反时会返回 None ，因为此时的旋转不唯一
-            .unwrap_or(UnitQuaternion::from_axis_angle(&Vector3::y_axis(), PI));
+    pub fn new(parameters: &CameraParameters) -> Self {
+        let rotation = UnitQuaternion::rotation_between(
+            &Vector3::z_axis(),
+            &(parameters.initial_position - parameters.initial_look_at),
+        )
+        // rotation_between 在两个方向共线且方向相反时会返回 None ，因为此时的旋转不唯一
+        .unwrap_or(UnitQuaternion::from_axis_angle(&Vector3::y_axis(), PI));
         let mut camera = Camera {
-            position: parameter.position,
+            position: parameters.initial_position,
             rotation,
-            vfov: parameter.vfov,
-            up: parameter.up,
-            focus_distance: parameter.focus_distance,
-            defocus_angle: parameter.defocus_angle,
-            movement_speed: parameter.movement_speed,
-            rotation_scale: parameter.rotation_scale,
+            vfov: parameters.vfov,
+            up: parameters.up,
+            focus_distance: parameters.focus_distance,
+            defocus_angle: parameters.defocus_angle,
+            movement_speed: parameters.movement_speed,
+            rotation_scale: parameters.rotation_scale,
             u: Vector3::x_axis(),
             v: Vector3::y_axis(),
             w: Vector3::z_axis(),
+            should_rerender: false,
         };
 
         camera.update_camera_frame();
         camera
     }
 
-    pub fn translate(&mut self, delta_time: Vector3<f32>) {
-        let movement_distance = delta_time * self.movement_speed;
+    pub fn translate(&mut self, translation: Vector3<f32>) {
+        if translation == Vector3::zeros() {
+            return;
+        }
+        
+        let movement_distance = translation * self.movement_speed;
         self.position +=
             self.u.scale(movement_distance.x) + self.v.scale(movement_distance.y) - self.w.scale(movement_distance.z);
+        self.should_rerender = true;
     }
 
     pub fn rotate(&mut self, delta: &Vector2<f32>) {
@@ -122,7 +143,16 @@ impl Camera {
 
         if rotation_changed {
             self.update_camera_frame();
+            self.should_rerender = true;
         }
+    }
+
+    pub fn take_rerender(&mut self) -> bool {
+        if self.should_rerender {
+            self.should_rerender = false;
+            return true;
+        }
+        false
     }
 
     fn try_rotate(&mut self, rotation: &UnitQuaternion<f32>) -> bool {
@@ -144,5 +174,25 @@ impl Camera {
         self.w = self.rotation * Vector3::z_axis();
         self.u = UnitVector3::new_normalize(self.up.cross(&self.w));
         self.v = UnitVector3::new_normalize(self.w.cross(&self.u));
+    }
+
+    pub fn update(&mut self, update_parameters: &CameraUpdateParameters) {
+        if self.vfov != update_parameters.vfov {
+            self.vfov = update_parameters.vfov;
+            self.should_rerender = true;
+        }
+
+        if self.focus_distance != update_parameters.focus_distance {
+            self.focus_distance = update_parameters.focus_distance;
+            self.should_rerender = true;
+        }
+
+        if self.defocus_angle != update_parameters.defocus_angle {
+            self.defocus_angle = update_parameters.defocus_angle;
+            self.should_rerender = true;
+        }
+
+        self.movement_speed = update_parameters.movement_speed;
+        self.rotation_scale = update_parameters.rotation_scale;
     }
 }

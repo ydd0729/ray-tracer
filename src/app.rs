@@ -5,15 +5,14 @@ pub mod input;
 mod renderer;
 mod scene;
 
-use crate::app::camera::CameraParameter;
 use crate::app::gui_state::GuiState;
 use crate::app::input::PressRecord;
 use crate::app::renderer::{Renderer, RendererParameters};
 use crate::app::scene::Scene;
-use crate::rendering::primitive::PrimitiveProvider;
+use crate::rendering::mesh::Mesh;
 use crate::rendering::wgpu::{Wgpu, WgpuTexture, WgpuTextureBindingInstruction, WgpuTextureBindingType};
 use crate::time;
-use camera::Camera;
+use camera::{Camera, CameraUpdateParameters};
 use cfg_if::cfg_if;
 use getset::Getters;
 use log::info;
@@ -22,6 +21,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::sync::Arc;
 use wgpu::{ShaderStages, TextureSampleType};
+use winit::dpi::PhysicalSize;
 use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, StartCause, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::KeyCode;
@@ -35,6 +35,7 @@ cfg_if! {
 #[derive(Default, Getters)]
 pub struct App {
     last_frame_time: Option<time::Instant>,
+    size: PhysicalSize<u32>,
     // 必须使用 Arc ，因为 wgpu::Instance::create_surface 要求实现 Send 和 Sync
     window: Option<Arc<winit::window::Window>>,
     wgpu: Option<RefCell<Wgpu>>,
@@ -43,8 +44,7 @@ pub struct App {
     renderer: Option<RefCell<Renderer>>,
 
     gui_state: RefCell<GuiState>,
-    #[getset(get = "pub")]
-    camera: Camera,
+    camera: RefCell<Camera>,
     scene: RefCell<Scene>,
 
     allow_input: bool,
@@ -75,30 +75,34 @@ impl App {
         ];
         let key_records: HashMap<KeyCode, PressRecord> = keys.into_iter().collect();
 
-        let scene = RefCell::new(Scene::scene_primitives());
+        let scene = RefCell::new(Scene::scene_cornell_box());
+        // let scene = RefCell::new(Scene::scene_light());
+        let scene_ref = scene.borrow();
 
         let gui_state = RefCell::new(GuiState {
             checkbox: false,
-            samples_per_pixel: 1,
-            max_ray_bounces: 0,
-            camera_parameter: CameraParameter {
-                position: scene.borrow().camera_initial_position,
-                look_at: scene.borrow().camera_initial_look_at,
-                vfov: 45.0,
-                up: Vector3::y_axis(),
-                focus_distance: 1.0,
-                defocus_angle: 0.0,
-                movement_speed: 1.0,
-                rotation_scale: Vector3::new(0.2, 0.1, 0.0),
+            samples_per_pixel: 10000,
+            max_ray_bounces: 16,
+            camera_update_parameters: CameraUpdateParameters {
+                vfov: scene_ref.camera_parameters.vfov,
+                focus_distance: scene_ref.camera_parameters.focus_distance,
+                defocus_angle: scene_ref.camera_parameters.defocus_angle,
+                movement_speed: scene_ref.camera_parameters.movement_speed,
+                rotation_scale: scene_ref.camera_parameters.rotation_scale,
             },
         });
 
-        let camera = Camera::new(gui_state.borrow().camera_parameter());
+        let camera = RefCell::new(Camera::new(&scene_ref.camera_parameters));
+
+        drop(scene_ref);
 
         let mut app = Self {
             last_frame_time: None,
+            size: PhysicalSize::new(0, 0),
             window: None,
             wgpu: None,
+            #[cfg(target_arch = "wasm32")]
+            wgpu_context_receiver: None,
             renderer: None,
             gui_state,
             camera,
@@ -110,15 +114,20 @@ impl App {
         event_loop.run_app(&mut app).expect("panic");
     }
 
-    fn resize(&mut self, size: &winit::dpi::PhysicalSize<u32>) {
+    fn resize(&mut self, size: &PhysicalSize<u32>) {
+        if self.size == *size {
+            return;
+        }
+        self.size = *size;
+
         info!("Resizing to {:?}", size);
 
         if size.width == 0 || size.height == 0 {
             return;
         }
 
-        self.renderer_mut().on_resize(self.wgpu(), size, &self.camera);
         self.wgpu_mut().on_resize(size);
+        self.renderer_mut().on_resize(self.wgpu(), size, self.camera());
     }
 
     fn update(&mut self) {
@@ -136,10 +145,10 @@ impl App {
         translation.z = self.key_records.get_mut(&KeyCode::KeyW).unwrap().delta()
             - self.key_records.get_mut(&KeyCode::KeyS).unwrap().delta();
 
-        self.camera.translate(translation);
+        self.camera_mut().translate(translation);
 
         self.renderer_mut()
-            .on_update(window, self.wgpu(), delta_time, &self.camera, self.gui_state_mut());
+            .on_update(window, self.wgpu(), delta_time, self.camera_mut(), self.gui_state_mut());
 
         // info!("camera position: {:?}", self.camera.position());
         // info!("camera rotation: {:?}", self.camera.rotation());
@@ -341,7 +350,7 @@ impl winit::application::ApplicationHandler for App {
             // Different devices may use different units.
             DeviceEvent::MouseMotion { delta: (x, y), .. } => {
                 if self.allow_input {
-                    self.camera.rotate(&Vector2::new(-x as f32, -y as f32));
+                    self.camera_mut().rotate(&Vector2::new(-x as f32, -y as f32));
                 }
             }
             DeviceEvent::MouseWheel { .. } => {}
@@ -386,27 +395,29 @@ impl App {
     }
 
     fn on_wgpu_received(&mut self) {
-        let camera = Camera::new(self.gui_state().camera_parameter());
-        self.camera = camera;
+        let mut primitives = Vec::new();
+        let mut important_indices = Vec::new();
+        self.scene_mut().primitives(&mut primitives, &mut important_indices);
 
+        let scene = self.scene();
         let render_parameter = RendererParameters {
             samples_per_pixel: self.gui_state().samples_per_pixel(),
             max_ray_bounces: self.gui_state().max_ray_bounces(),
             max_width: 3840,
             max_height: 2160,
             clear_color: Point4::new(0.0, 0.0, 0.0, 1.0),
+            window: self.window(),
+            camera: self.camera(),
+            primitives: &primitives,
+            important_indices: &important_indices,
+            materials: &scene.materials
         };
+        let renderer = RefCell::new(Renderer::new(self.wgpu(), &render_parameter));
 
-        let mut primitives = Vec::new();
-        self.scene_mut().primitives(&mut primitives);
+        drop(render_parameter);
+        drop(scene);
 
-        self.renderer = Some(RefCell::new(Renderer::new(
-            self.wgpu(),
-            self.window(),
-            self.camera(),
-            &render_parameter,
-            &primitives,
-        )));
+        self.renderer = Some(renderer);
     }
 
     fn update_delta_time(&mut self) -> time::Duration {
@@ -443,5 +454,11 @@ impl App {
     }
     fn scene_mut(&self) -> RefMut<'_, Scene> {
         self.scene.borrow_mut()
+    }
+    fn camera(&self) -> Ref<'_, Camera> {
+        self.camera.borrow()
+    }
+    fn camera_mut(&self) -> RefMut<'_, Camera> {
+        self.camera.borrow_mut()
     }
 }

@@ -4,6 +4,7 @@ pub mod configuration;
 pub mod graphics_api;
 mod interval;
 pub mod material;
+pub mod mesh;
 pub mod primitive;
 mod vertex;
 
