@@ -15,10 +15,6 @@ const VEC3F_ZEROS: vec3f = vec3f(0.0, 0.0, 0.0);
 const MAT3X3F_IDENTITY: mat3x3f = mat3x3f(VEC3F_UNIT_X, VEC3F_UNIT_Y, VEC3F_UNIT_Z);
 const F32_POSITIVE_MIN: f32 = 0x1p-126f;
 
-/*---------------------------------------- Privates ---------------------------------------------*/
-
-var<private> pixel_position: vec2<f32>;
-
 /*---------------------------------------- Bindings ---------------------------------------------*/
 
 @group(0) @binding(0)
@@ -28,10 +24,10 @@ var<uniform> context: RenderContext;
 var<storage, read_write> pixel_color: array<array<f32, 3>>; // 这里如果使用 vec3 会浪费 4 个字节用于对齐
 
 @group(0) @binding(2)
-var<storage, read> primitives: array<Primitive>;
+var<storage, read> bvh_tree: array<BvhNode>;
 
 @group(0) @binding(3)
-var<storage, read> importance: array<u32>;
+var<storage, read> importance: array<PrimitiveIndex>;
 
 @group(0) @binding(4)
 var<storage, read> quads: array<Quad>;
@@ -62,9 +58,6 @@ fn compute_main(
         return;
     }
 
-    pixel_position.x = f32(gid.x);
-    pixel_position.y = f32(gid.y);
-
     let pixel_index = gid.x + gid.y * context.width;
     init_random_generator(
         pixel_index + context.width * context.height * context.sample_id
@@ -72,7 +65,7 @@ fn compute_main(
 
     var sample_color: vec3f;
     if context.sample_id < context.samples_per_pixel {
-        var ray = get_ray();
+        var ray = get_ray(vec2f(f32(gid.x), f32(gid.y)));
         sample_color = ray_color(&ray);
     }
 
@@ -98,7 +91,7 @@ fn compute_main(
     textureStore(surface, gid.xy, vec4(linear_to_srgb(color), 1.0));
 }
 
-fn get_ray() -> Ray {
+fn get_ray(pixel_position: vec2f) -> Ray {
     let offset = sample_unit_square_stratified();
     let pixel_world_position = context.pixel_origin
                                 + (pixel_position.x + offset.x) * context.pixel_delta_u
@@ -133,20 +126,15 @@ var<private> ray_color_stack: array<RayColorCalculationEntry, MAX_RAY_BOUNCES>;
 fn ray_color(
     ray: ptr<function, Ray>,
 ) -> vec3f {
-    let n = arrayLength(&primitives);
     var stack_id = -1;
 
     for (var bounce = 0; bounce <= i32(context.ray_bounces); bounce++) {
         var hit_record: HitRecord;
         var interval = Interval_init_2f(0.001, MAX);
         
-        for (var i: u32 = 0; i < n; i++) {
-            let primitive_type = primitives[i].primitive_type;
-            let primitive_id = primitives[i].primitive_id;
-            if Primitive_hit(primitive_type, primitive_id, ray, &interval, &hit_record) {
-                interval.max = hit_record.ray_t;
-            }
-        }
+        var debug_color: vec3f;
+        Bvh_hit(0u, ray, &interval, &hit_record, &debug_color);
+        // return debug_color;
 
         if !hit_record.hit {
             let background = vec3f(0.0, 0.0, 0.0);
@@ -185,7 +173,7 @@ fn ray_color(
         // let pdf_value = Material_pdf_value(&scattered_ray, &hit_record);
 
         // Mixed
-        let material_weight = 0.6; // this is a empirical value
+        let material_weight = 0.6; // this is an empirical value
         if randomf() > material_weight {
             scattered_ray.direction = importance_random(&scattered_origin);
             let pdf_value = importance_pdf_value(&scattered_ray);
@@ -209,6 +197,7 @@ fn ray_color(
         ray_color_stack[stack_id].pdf_val = pdf_value;
     }
     
+    // return vec3(0.0,0.0,0.0);
     return resolve_ray_color(stack_id, VEC3F_ZEROS);
 }
 
@@ -234,8 +223,8 @@ fn importance_pdf_value(ray: ptr<function, Ray>) -> f32 {
     let len = context.important_index_len;
     var pdf = 0.0;
     for (var i: u32 = 0; i < len; i++) {
-        let primitive_type = primitives[importance[i]].primitive_type;
-        let primitive_id = primitives[importance[i]].primitive_id;
+        let primitive_type = importance[i].primitive_type;
+        let primitive_id = importance[i].primitive_id;
         pdf += Primitive_pdf_value(primitive_type, primitive_id, ray);
     }
     return pdf / f32(len);
@@ -245,8 +234,8 @@ fn importance_random(origin: ptr<function, vec3f>) -> vec3f {
     // let len = arrayLength(&importance);
     let len = context.important_index_len;
     var i = randomi_range(0, i32(len - 1));
-    let primitive_type = primitives[importance[i]].primitive_type;
-    let primitive_id = primitives[importance[i]].primitive_id;
+    let primitive_type = importance[i].primitive_type;
+    let primitive_id = importance[i].primitive_id;
     return Primitive_random(primitive_type, primitive_id, origin);
 }
 
@@ -269,6 +258,178 @@ struct RenderContext {
     camera_position: vec3f,
     ray_bounces: u32,
     important_index_len: u32
+}
+/*------------------------------------------ BVH ------------------------------------------------*/
+
+struct BoundingBox {
+    xyz: array<Interval, 3>
+}
+
+fn BoundingBox_hit(
+    box: BoundingBox,
+    ray: ptr<function, Ray>,
+    interval: Interval
+) -> bool {
+    var temp_interval = interval;
+
+    var ad_inv = 1.0 / (*ray).direction[0];
+    var t0 = (box.xyz[0].min - (*ray).origin[0]) * ad_inv;
+    var t1 = (box.xyz[0].max - (*ray).origin[0]) * ad_inv;
+
+    if !BoundingBox_hit_update_interval(t0, t1, &temp_interval) {
+        return false;
+    }
+
+    ad_inv = 1.0 / (*ray).direction[1];
+    t0 = (box.xyz[1].min - (*ray).origin[1]) * ad_inv;
+    t1 = (box.xyz[1].max - (*ray).origin[1]) * ad_inv;
+
+    if !BoundingBox_hit_update_interval(t0, t1, &temp_interval) {
+        return false;
+    }
+
+    ad_inv = 1.0 / (*ray).direction[2];
+    t0 = (box.xyz[2].min - (*ray).origin[2]) * ad_inv;
+    t1 = (box.xyz[2].max - (*ray).origin[2]) * ad_inv;
+
+    if !BoundingBox_hit_update_interval(t0, t1, &temp_interval) {
+        return false;
+    }
+
+    return true;
+}
+
+fn BoundingBox_hit_update_interval(
+    t0: f32,
+    t1: f32,
+    interval: ptr<function, Interval>
+) -> bool {
+    if t0 < t1 {
+        if t0 > (*interval).min { (*interval).min = t0; }
+        if t1 < (*interval).max { (*interval).max = t1; }
+    } else {
+        if t1 > (*interval).min { (*interval).min = t1; }
+        if t0 < (*interval).max { (*interval).max = t0; }
+    }
+    if (*interval).max <= (*interval).min {
+        return false;
+    }
+    return true;
+}
+
+// https://www.sci.utah.edu/~wald/Publications/2011/StackFree/sccg2011.pdf
+
+struct BvhNode {
+    left_or_primitive_type: u32,
+    right_or_primitive_id: u32,
+    parent: u32,
+    is_leaf: u32,
+    box: BoundingBox
+}
+
+const FROM_CHILD: u32 = 0;
+const FROM_SIBLING: u32 = 1;
+const FROM_PARENT: u32 = 2;
+
+fn Bvh_hit(
+    root: u32,
+    ray: ptr<function, Ray>,
+    interval: ptr<function, Interval>,
+    hit_record: ptr<function, HitRecord>,
+    debug_color: ptr<function, vec3f>
+) -> bool {
+    if !BoundingBox_hit(bvh_tree[root].box, ray, *interval) {
+        return false;
+    }
+
+    var current = Bvh_left(root);
+    var state = FROM_PARENT;
+    var depth = 2.0;
+    var max_depth = 2.0;
+    var primitive_missed = false;
+    let bounding_color = vec3f(0.02, 0.02, 0.02);
+    let hit_color = vec3f(0.5, 0.0, 0.0);
+    let miss_color = vec3f(0.0, 0.5, 0.0);
+    loop {
+        switch (state) {
+            case FROM_CHILD: {
+                if current == root {
+                    *debug_color = max_depth * bounding_color;
+                    if primitive_missed {
+                         *debug_color += miss_color;
+                    }
+                    else if (*hit_record).hit {
+                        *debug_color += hit_color;
+                    }
+                    return (*hit_record).hit; 
+                }
+                if current == Bvh_left(Bvh_parent(current)) {
+                    current = Bvh_sibling(current);
+                    state = FROM_SIBLING;
+                } else {
+                    depth -= 1.0;
+                    current = Bvh_parent(current);
+                    state = FROM_CHILD;
+                }
+            }
+            case FROM_SIBLING: {
+                if !BoundingBox_hit(bvh_tree[current].box, ray, *interval) {
+                    depth -= 1.0;
+                    current = Bvh_parent(current);
+                    state = FROM_CHILD;
+                } else if Bvh_is_leaf(current) {
+                    let primitive_type = bvh_tree[current].left_or_primitive_type;
+                    let primitive_id = bvh_tree[current].right_or_primitive_id;
+                    primitive_missed = !Primitive_hit(primitive_type, primitive_id, ray, interval, hit_record);
+                    depth -= 1.0;
+                    current = Bvh_parent(current);
+                    state = FROM_CHILD;
+                } else {
+                    depth += 1.0;
+                    max_depth = max(max_depth, depth);
+                    current = Bvh_left(current);
+                    state = FROM_PARENT;
+                }
+            }
+            case FROM_PARENT: {
+                if !BoundingBox_hit(bvh_tree[current].box, ray, *interval) {
+                    current = Bvh_sibling(current);
+                    state = FROM_SIBLING;
+                } else if (Bvh_is_leaf(current)) {
+                    let primitive_type = bvh_tree[current].left_or_primitive_type;
+                    let primitive_id = bvh_tree[current].right_or_primitive_id;
+                    primitive_missed = !Primitive_hit(primitive_type, primitive_id, ray, interval, hit_record);
+                    current = Bvh_sibling(current);
+                    state = FROM_SIBLING;
+                } else {
+                    depth += 1.0;
+                    max_depth = max(max_depth, depth);
+                    current = Bvh_left(current);
+                    state = FROM_PARENT;
+                }
+            }
+            default: {
+                return false;
+            }
+        }
+    }
+    return (*hit_record).hit;
+}
+
+fn Bvh_parent(id: u32) -> u32 {
+    return bvh_tree[id].parent;
+}
+
+fn Bvh_is_leaf(id: u32) -> bool {
+    return bvh_tree[id].is_leaf == 1;
+}
+
+fn Bvh_left(id: u32) -> u32 {
+    return bvh_tree[id].left_or_primitive_type;
+}
+
+fn Bvh_sibling(id: u32) -> u32 {
+    return bvh_tree[Bvh_parent(id)].right_or_primitive_id;
 }
 
 /*------------------------------------- Scatter Record ------------------------------------------*/
@@ -493,7 +654,7 @@ fn DiffuseLight_emit(
 
 /*----------------------------------------- Primitive --------------------------------------------*/
 
-struct Primitive {
+struct PrimitiveIndex {
     primitive_type: u32,
     primitive_id: u32,
 }
@@ -505,17 +666,22 @@ fn Primitive_hit(
     interval: ptr<function, Interval>,
     hit_record: ptr<function, HitRecord>,
 ) -> bool {
+    var hit: bool;
     switch (primitive_type) {
         case 0u: { // Quad
-            return Quad_hit(primitive_id, ray, interval, hit_record);
+            hit = Quad_hit(primitive_id, ray, interval, hit_record);
         }
         case 1u: { // Sphere
-            return Sphere_hit(primitive_id, ray, interval, hit_record);
+            hit = Sphere_hit(primitive_id, ray, interval, hit_record);
         }
         default: {
             return false;
         }
     }
+    if hit {
+        (*interval).max = (*hit_record).ray_t;
+    }
+    return hit;
 }
 
 fn Primitive_pdf_value(
@@ -802,7 +968,8 @@ fn HitRecord_set_face_normal(
 
 struct Interval {
     min: f32,
-    max: f32
+    max: f32,
+    _padding: array<u32, 2>
 }
 
 fn Interval_init_empty() -> Interval {

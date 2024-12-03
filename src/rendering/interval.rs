@@ -1,7 +1,14 @@
-#[derive(Copy, Clone)]
+use bytemuck::{Pod, Zeroable};
+use getset::Getters;
+
+#[repr(C)]
+#[derive(Copy, Clone, Zeroable, Pod, Getters, Default, Debug)]
 pub struct Interval {
+    #[getset(get = "pub")]
     min: f32,
+    #[getset(get = "pub")]
     max: f32,
+    _padding: [u32; 2],
 }
 
 impl Interval {
@@ -9,13 +16,18 @@ impl Interval {
         const EMPTY: Interval = Interval {
             min: f32::MAX,
             max: f32::MIN,
+            _padding: [0; 2],
         };
 
         EMPTY
     }
 
     pub fn new(min: f32, max: f32) -> Self {
-        Self { min, max }
+        Self {
+            min,
+            max,
+            _padding: [0; 2],
+        }
     }
 
     pub fn new_from_intervals(a: &Interval, b: &Interval) -> Self {
@@ -55,7 +67,7 @@ impl Interval {
 
     pub fn expand(&mut self, delta: f32) -> &mut Self {
         let padding = delta / 2.0;
-        self.min += padding;
+        self.min -= padding;
         self.max += padding;
         self
     }

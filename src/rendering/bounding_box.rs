@@ -1,14 +1,16 @@
 use crate::rendering::interval::Interval;
+use bytemuck::{Pod, Zeroable};
 use nalgebra::Point3;
 
-#[derive(Copy, Clone)]
-pub struct AxisAlignedBoundingBox {
+#[repr(C)]
+#[derive(Copy, Clone, Zeroable, Pod, Default, Debug)]
+pub struct BoundingBox {
     xyz: [Interval; 3],
 }
 
-impl AxisAlignedBoundingBox {
+impl BoundingBox {
     pub const fn empty() -> Self {
-        const EMPTY: AxisAlignedBoundingBox = AxisAlignedBoundingBox {
+        const EMPTY: BoundingBox = BoundingBox {
             xyz: [Interval::empty(); 3],
         };
         EMPTY
@@ -44,7 +46,7 @@ impl AxisAlignedBoundingBox {
         bounding_box
     }
 
-    pub fn new_from_boxes(a: &AxisAlignedBoundingBox, b: &AxisAlignedBoundingBox) -> Self {
+    pub fn new_from_boxes(a: &BoundingBox, b: &BoundingBox) -> Self {
         Self {
             xyz: [
                 Interval::new_from_intervals(a.x(), b.x()),
@@ -54,7 +56,7 @@ impl AxisAlignedBoundingBox {
         }
     }
 
-    pub fn merge(&mut self, other: &AxisAlignedBoundingBox) {
+    pub fn merge(&mut self, other: &BoundingBox) {
         for i in 0..3 {
             self.axis_mut(i).merge(&other.axis(i));
         }
@@ -74,7 +76,7 @@ impl AxisAlignedBoundingBox {
         }
     }
 
-    pub fn longest_axis(&self) -> u8 {
+    pub fn longest_axis(&self) -> i32 {
         if self.x().size() > self.y().size() {
             if self.x().size() > self.z().size() {
                 0

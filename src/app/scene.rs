@@ -1,9 +1,10 @@
 use crate::math::degree_to_radian;
-use crate::rendering::aabb::AxisAlignedBoundingBox;
+use crate::rendering::primitive::Transformable;
 use crate::rendering::material::{DebugNormal, Dielectric, DiffuseLight, Lambertian, MaterialList};
+use crate::rendering::mesh::mesh_list::TransformableMeshList;
 use crate::rendering::mesh::Mesh;
 use crate::rendering::primitive::sphere::Sphere;
-use crate::rendering::primitive::{Primitive, Quad, RenderObjectList, Transformable};
+use crate::rendering::primitive::{PrimitiveData, Quad};
 use log::info;
 use nalgebra::{Point3, Translation3, UnitQuaternion, Vector3};
 use std::rc::Rc;
@@ -13,7 +14,7 @@ use super::camera::CameraParameters;
 #[derive(Default)]
 pub struct Scene {
     pub camera_parameters: CameraParameters,
-    pub objects: RenderObjectList,
+    pub objects: TransformableMeshList,
     pub materials: MaterialList,
 }
 
@@ -23,7 +24,7 @@ impl Scene {
         let mut materials = MaterialList::default();
         let debug_normal = materials.add(Box::new(DebugNormal {}));
 
-        let mut objects = RenderObjectList::new();
+        let mut objects = TransformableMeshList::new();
 
         objects.add(Quad::new(
             Point3::new(0.0, 0.0, 0.0),
@@ -56,9 +57,9 @@ impl Scene {
         let mut materials = MaterialList::default();
         let debug_normal = materials.add(Box::new(DebugNormal {}));
 
-        let mut objects = RenderObjectList::new();
+        let mut objects = TransformableMeshList::new();
 
-        let mut cube = RenderObjectList::cube(Point3::origin(), 1.0, 1.0, 1.0, debug_normal, false);
+        let mut cube = TransformableMeshList::cube(Point3::origin(), 1.0, 1.0, 1.0, debug_normal, false);
         cube.rotate(UnitQuaternion::from_axis_angle(
             &Vector3::y_axis(),
             degree_to_radian(45.0),
@@ -98,7 +99,7 @@ impl Scene {
         let light = materials.add(Box::new(DiffuseLight::new(Point3::new(1.0, 1.0, 1.0))));
         info!("{:?}", light);
 
-        let mut objects = RenderObjectList::new();
+        let mut objects = TransformableMeshList::new();
 
         objects.add(Quad::new(
             Point3::new(0.0, 1.0, 0.0),
@@ -116,7 +117,7 @@ impl Scene {
             false,
         ));
 
-        let mut cube = RenderObjectList::cube(Point3::new(0.0, 0.4, 0.0), 0.5, 0.6, 0.5, lambertian_white, false);
+        let mut cube = TransformableMeshList::cube(Point3::new(0.0, 0.4, 0.0), 0.5, 0.6, 0.5, lambertian_white, false);
         cube.rotate(UnitQuaternion::from_axis_angle(
             &Vector3::y_axis(),
             degree_to_radian(15.0),
@@ -155,7 +156,7 @@ impl Scene {
         let light = materials.add(Box::new(DiffuseLight::new(Point3::new(1.0, 1.0, 1.0))));
         info!("{:?}", light);
 
-        let mut objects = RenderObjectList::new();
+        let mut objects = TransformableMeshList::new();
 
         objects.add(Quad::new(
             Point3::new(0.0, 100.0, 0.0),
@@ -181,7 +182,8 @@ impl Scene {
             false,
         ));
 
-        let mut cube = RenderObjectList::cube(Point3::new(0.0, 40.0, 0.0), 50.0, 60.0, 50.0, lambertian_white, false);
+        let mut cube =
+            TransformableMeshList::cube(Point3::new(0.0, 40.0, 0.0), 50.0, 60.0, 50.0, lambertian_white, false);
         cube.rotate(UnitQuaternion::from_axis_angle(
             &Vector3::y_axis(),
             degree_to_radian(15.0),
@@ -217,7 +219,7 @@ impl Scene {
         let light = materials.add(Box::new(DiffuseLight::new(Point3::new(15.0, 15.0, 15.0))));
         let dielectric = materials.add(Box::new(Dielectric::new(1.5)));
 
-        let mut objects = RenderObjectList::new();
+        let mut objects = TransformableMeshList::new();
 
         // Light
         // objects.add(Quad::new(
@@ -276,7 +278,7 @@ impl Scene {
             true,
         ));
 
-        let mut cube = RenderObjectList::cube(
+        let mut cube = TransformableMeshList::cube(
             Point3::new(0.825, 1.650, 0.825),
             1.650,
             3.300,
@@ -312,11 +314,7 @@ impl Scene {
 }
 
 impl Mesh for Scene {
-    fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>, important_indices: &mut Vec<u32>) {
+    fn primitives(&mut self, primitives: &mut Vec<Rc<PrimitiveData>>, important_indices: &mut Vec<u32>) {
         self.objects.primitives(primitives, important_indices);
-    }
-
-    fn bounding_box(&mut self, boxes: &mut Vec<Rc<AxisAlignedBoundingBox>>) {
-        self.objects.bounding_box(boxes);
     }
 }

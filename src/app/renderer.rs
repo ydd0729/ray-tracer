@@ -1,11 +1,10 @@
 use crate::app::camera::Camera;
 use crate::app::egui_renderer::EguiRenderer;
 use crate::app::gui_state::GuiState;
-use crate::rendering::material::Dielectric;
-use crate::rendering::material::DiffuseLight;
-use crate::rendering::material::Lambertian;
-use crate::rendering::material::MaterialList;
-use crate::rendering::material::MaterialType;
+use crate::rendering::bvh::build_bvh_tree;
+use crate::rendering::bvh::BvhBuildingEntry;
+use crate::rendering::bvh::BvhNode;
+use crate::rendering::material::*;
 use crate::rendering::primitive::sphere::SphereData;
 use crate::rendering::primitive::*;
 use crate::rendering::wgpu::*;
@@ -29,7 +28,8 @@ use winit::dpi::PhysicalSize;
 pub struct Renderer {
     render_context: RenderContext,
     render_context_uniform_buffer: WgpuBindBuffer,
-    primitives_storage_buffer: WgpuBindBuffer,
+    // primitives_storage_buffer: WgpuBindBuffer,
+    bvh_storage_buffer: WgpuBindBuffer,
     important_indices_storage_buffer: WgpuBindBuffer,
     quads_storage_buffer: WgpuBindBuffer,
     spheres_storage_buffer: WgpuBindBuffer,
@@ -51,7 +51,7 @@ pub struct RendererParameters<'a> {
     pub clear_color: Point4<f32>,
     pub window: Arc<winit::window::Window>,
     pub camera: Ref<'a, Camera>,
-    pub primitives: &'a [Rc<Primitive>],
+    pub primitives: &'a [Rc<PrimitiveData>],
     pub important_indices: &'a [u32],
     pub materials: &'a MaterialList,
 }
@@ -64,47 +64,85 @@ impl<'a> RendererParameters<'a> {
 
 impl Renderer {
     pub fn new(wgpu: Ref<Wgpu>, parameters: &RendererParameters) -> Self {
-        let mut primitives_data = Vec::new();
+        let mut primitives_indices = Vec::new();
         let mut quads_data = Vec::new();
         let mut spheres_data = Vec::new();
+        let mut bvh_building = Vec::new();
+        let mut importance = Vec::new();
 
-        for primitive in parameters.primitives.iter().map(Rc::as_ref) {
-            match primitive {
-                Primitive::Quad(quad) => {
-                    primitives_data.push(PrimitiveData {
+        for primitive in parameters.primitives.iter().map(Rc::clone) {
+            match primitive.as_ref() {
+                PrimitiveData::Quad(quad) => {
+                    bvh_building.push(BvhBuildingEntry {
+                        primitive: Rc::clone(&primitive),
+                        primitive_type: (*primitive).into(),
+                        primitive_id: quads_data.len() as u32,
+                        bounding_box: primitive.bounding_box(),
+                    });
+                    primitives_indices.push(PrimitiveIndex {
                         primitive_type: (*primitive).into(),
                         primitive_id: quads_data.len() as u32,
                     });
-                    quads_data.push(*quad);
+                    quads_data.push(quad.clone());
                 }
-                Primitive::Sphere(sphere) => {
-                    primitives_data.push(PrimitiveData {
+                PrimitiveData::Sphere(sphere) => {
+                    bvh_building.push(BvhBuildingEntry {
+                        primitive: Rc::clone(&primitive),
+                        primitive_type: (*primitive).into(),
+                        primitive_id: spheres_data.len() as u32,
+                        bounding_box: primitive.bounding_box(),
+                    });
+                    primitives_indices.push(PrimitiveIndex {
                         primitive_type: (*primitive).into(),
                         primitive_id: spheres_data.len() as u32,
                     });
-                    spheres_data.push(*sphere);
+                    spheres_data.push(sphere.clone());
                 }
             }
         }
-        let primitives_storage_buffer = WgpuBindBuffer::new(
+
+        for important in parameters.important_indices {
+            importance.push(primitives_indices[*important as usize]);
+        }
+
+        let len = bvh_building.len();
+        let mut bvh_tree = Vec::new();
+        build_bvh_tree(&mut bvh_tree, &mut bvh_building, 0, len, 0);
+
+        let mut i = 0;
+        for node in &bvh_tree {
+            info!("{} = {:?}\n", i, node);
+            i += 1;
+        }
+        let bvh_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
-            "primitive storage",
-            (size_of::<PrimitiveData>() * cmp::max(primitives_data.len(), 1)) as BufferAddress,
+            "bvh storage",
+            (size_of::<BvhNode>() * cmp::max(bvh_tree.len(), 1)) as BufferAddress,
             BufferUsages::STORAGE | BufferUsages::COPY_DST,
             ShaderStages::COMPUTE,
             true,
         );
-        primitives_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(primitives_data.as_slice()));
+        bvh_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(bvh_tree.as_slice()));
+
+        // let primitives_storage_buffer = WgpuBindBuffer::new(
+        //     &wgpu,
+        //     "primitive storage",
+        //     (size_of::<PrimitiveIndex>() * cmp::max(primitives_index.len(), 1)) as BufferAddress,
+        //     BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        //     ShaderStages::COMPUTE,
+        //     true,
+        // );
+        // primitives_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(primitives_index.as_slice()));
 
         let important_indices_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
             "important indices storage",
-            (size_of::<PrimitiveData>() * cmp::max(parameters.important_indices.len(), 1)) as BufferAddress,
+            (size_of::<PrimitiveIndex>() * cmp::max(importance.len(), 1)) as BufferAddress,
             BufferUsages::STORAGE | BufferUsages::COPY_DST,
             ShaderStages::COMPUTE,
             true,
         );
-        important_indices_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(parameters.important_indices));
+        important_indices_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(importance.as_slice()));
 
         let quads_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
@@ -216,7 +254,8 @@ impl Renderer {
         Self {
             render_context,
             render_context_uniform_buffer,
-            primitives_storage_buffer,
+            bvh_storage_buffer,
+            // primitives_storage_buffer,
             important_indices_storage_buffer,
             quads_storage_buffer,
             spheres_storage_buffer,
@@ -256,7 +295,8 @@ impl Renderer {
             &[
                 &self.render_context_uniform_buffer,
                 &self.pixel_color_storage_buffer,
-                &self.primitives_storage_buffer,
+                // &self.primitives_storage_buffer,
+                &self.bvh_storage_buffer,
                 &self.important_indices_storage_buffer,
                 &self.quads_storage_buffer,
                 &self.spheres_storage_buffer,

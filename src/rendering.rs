@@ -1,5 +1,5 @@
-pub mod aabb;
-mod bvh;
+pub mod bounding_box;
+pub mod bvh;
 pub mod configuration;
 pub mod graphics_api;
 mod interval;

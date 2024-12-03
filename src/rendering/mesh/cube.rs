@@ -1,9 +1,10 @@
 use crate::rendering::material::MaterialHandle;
 use crate::rendering::primitive::quad::Quad;
-use crate::rendering::primitive::transformable::{RenderObjectList, Transformable};
+use crate::rendering::primitive::transformable::Transformable;
+use super::mesh_list::TransformableMeshList;
 use nalgebra::*;
 
-impl RenderObjectList {
+impl TransformableMeshList {
     pub fn cube(
         center: Point3<f32>,
         x_extent: f32,
@@ -70,7 +71,7 @@ impl RenderObjectList {
         );
         bottom.translate(Translation3::new(0.0, -half_y_extent, 0.0));
 
-        let mut cube = RenderObjectList::new();
+        let mut cube = TransformableMeshList::new();
         cube.add_all(vec![front, back, left, right, up, bottom]);
 
         cube

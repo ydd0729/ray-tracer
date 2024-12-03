@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
-use super::{aabb::AxisAlignedBoundingBox, primitive::Primitive};
+use super::primitive::PrimitiveData;
 
 pub mod cube;
+pub mod mesh_list;
 
 pub trait Mesh {
-    fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>, important_indices: &mut Vec<u32>);
-    fn bounding_box(&mut self, boxes: &mut Vec<Rc<AxisAlignedBoundingBox>>);
+    fn primitives(&mut self, primitives: &mut Vec<Rc<PrimitiveData>>, important_indices: &mut Vec<u32>);
 }
