@@ -22,13 +22,25 @@ pub struct RenderContext {
     pub sample_id: u32,
     pub camera_position: Point3<f32>,
     pub max_ray_bounces: u32,
+    pub important_index_len: u32,
+    _padding: [u32; 3],
+
 }
 
 impl RenderContext {
-    pub fn new(camera: &Camera, width: u32, height: u32, samples_per_pixel: u32, max_ray_bounces: u32) -> Self {
+    pub fn new(
+        camera: &Camera,
+        width: u32,
+        height: u32,
+        samples_per_pixel: u32,
+        max_ray_bounces: u32,
+        important_index_len: u32,
+    ) -> Self {
         let mut configuration = RenderContext::default();
-        configuration.set_samples_per_pixel(samples_per_pixel);
         configuration.max_ray_bounces = max_ray_bounces;
+        configuration.important_index_len = important_index_len;
+
+        configuration.set_samples_per_pixel(samples_per_pixel);
         configuration.update(camera, width, height);
 
         info!("{:?}", configuration);
@@ -51,7 +63,10 @@ impl RenderContext {
         self.sample_id = sample_id;
         let sample_grid_per_dimension = self.sample_grid_per_dimension();
         if sample_id < self.sample_grid_num {
-            self.sample_position = Point2::new(sample_id % sample_grid_per_dimension, sample_id / sample_grid_per_dimension);
+            self.sample_position = Point2::new(
+                sample_id % sample_grid_per_dimension,
+                sample_id / sample_grid_per_dimension,
+            );
         }
     }
 

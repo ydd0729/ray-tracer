@@ -77,6 +77,7 @@ impl App {
 
         let scene = RefCell::new(Scene::scene_cornell_box());
         // let scene = RefCell::new(Scene::scene_light());
+        // let scene = RefCell::new(Scene::scene_light_huge());
         let scene_ref = scene.borrow();
 
         let gui_state = RefCell::new(GuiState {
@@ -397,8 +398,9 @@ impl App {
     fn on_wgpu_received(&mut self) {
         let mut primitives = Vec::new();
         let mut important_indices = Vec::new();
+        
         self.scene_mut().primitives(&mut primitives, &mut important_indices);
-
+        info!("important_indices={:?}", important_indices);
         let scene = self.scene();
         let render_parameter = RendererParameters {
             samples_per_pixel: self.gui_state().samples_per_pixel(),

@@ -49,7 +49,7 @@ impl Transformable for Sphere {
 impl Mesh for Sphere {
     fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>, important_indices: &mut Vec<u32>) {
         if self.important {
-            important_indices.push(important_indices.len() as u32);
+            important_indices.push(primitives.len() as u32);
         }
 
         if self.primitive.is_none() {

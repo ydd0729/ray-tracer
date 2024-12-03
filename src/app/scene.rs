@@ -143,6 +143,71 @@ impl Scene {
     }
 
     #[allow(unused)]
+    pub fn scene_light_huge() -> Self {
+        let mut materials = MaterialList::default();
+        let lambertian_red = materials.add(Box::new(Lambertian::new(Point3::new(0.65, 0.05, 0.05))));
+        info!("{:?}", lambertian_red);
+        let lambertian_white = materials.add(Box::new(Lambertian::new(Point3::new(0.73, 0.73, 0.73))));
+        info!("{:?}", lambertian_white);
+        let lambertian_green = materials.add(Box::new(Lambertian::new(Point3::new(0.12, 0.45, 0.15))));
+        info!("{:?}", lambertian_green);
+
+        let light = materials.add(Box::new(DiffuseLight::new(Point3::new(1.0, 1.0, 1.0))));
+        info!("{:?}", light);
+
+        let mut objects = RenderObjectList::new();
+
+        objects.add(Quad::new(
+            Point3::new(0.0, 100.0, 0.0),
+            Vector3::new(100.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 100.0),
+            light,
+            true,
+        ));
+
+        objects.add(Quad::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(-200.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 200.0),
+            lambertian_green,
+            false,
+        ));
+
+        objects.add(Quad::new(
+            Point3::new(0.0, 0.0, -100.0),
+            Vector3::new(-200.0, 0.0, 0.0),
+            Vector3::new(0.0, 200.0, 0.0),
+            lambertian_red,
+            false,
+        ));
+
+        let mut cube = RenderObjectList::cube(Point3::new(0.0, 40.0, 0.0), 50.0, 60.0, 50.0, lambertian_white, false);
+        cube.rotate(UnitQuaternion::from_axis_angle(
+            &Vector3::y_axis(),
+            degree_to_radian(15.0),
+        ));
+
+        objects.add(cube);
+
+        let camera_parameters = CameraParameters {
+            initial_position: Point3::new(0.0, 50.0, 200.0),
+            initial_look_at: Point3::new(0.0, 50.0, 0.0),
+            vfov: 40.0,
+            up: Vector3::y_axis(),
+            focus_distance: 1.0,
+            defocus_angle: 0.0,
+            movement_speed: 100.0,
+            rotation_scale: Vector3::new(0.2, 0.1, 0.0),
+        };
+
+        Self {
+            camera_parameters,
+            objects,
+            materials,
+        }
+    }
+
+    #[allow(unused)]
     pub fn scene_cornell_box() -> Self {
         let mut materials = MaterialList::default();
 
@@ -154,64 +219,68 @@ impl Scene {
 
         let mut objects = RenderObjectList::new();
 
+        // Light
+        // objects.add(Quad::new(
+        //     Point3::new(2.780, 5.540, 2.795),
+        //     Vector3::new(1.300, 0.0, 0.0),
+        //     Vector3::new(0.0, 0.0, 1.050),
+        //     light,
+        //     true,
+        // ));
+
         // Cornell box sides
         objects.add(Quad::new(
-            Point3::new(555.0, 277.5, 277.5),
-            Vector3::new(0.0, 0.0, 555.0),
-            Vector3::new(0.0, 555.0, 0.0),
+            Point3::new(5.550, 2.775, 2.775),
+            Vector3::new(0.0, 0.0, 5.550),
+            Vector3::new(0.0, 5.550, 0.0),
             lambertian_green,
             false,
         ));
         objects.add(Quad::new(
-            Point3::new(0.0, 277.5, 277.5),
-            Vector3::new(0.0, 0.0, -555.0),
-            Vector3::new(0.0, 555.0, 0.0),
+            Point3::new(0.0, 2.775, 2.775),
+            Vector3::new(0.0, 0.0, -5.550),
+            Vector3::new(0.0, 5.550, 0.0),
             lambertian_red,
             false,
         ));
         objects.add(Quad::new(
-            Point3::new(277.5, 555.0, 277.5),
-            Vector3::new(555.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 555.0),
+            Point3::new(2.775, 5.550, 2.775),
+            Vector3::new(5.550, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 5.550),
             lambertian_white,
             false,
         ));
         objects.add(Quad::new(
-            Point3::new(277.5, 0.0, 277.5),
-            Vector3::new(555.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, -555.0),
+            Point3::new(2.775, 0.0, 2.775),
+            Vector3::new(5.550, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, -5.550),
             lambertian_white,
             false,
         ));
         objects.add(Quad::new(
-            Point3::new(277.5, 277.5, 555.0),
-            Vector3::new(-555.0, 0.0, 0.0),
-            Vector3::new(0.0, 555.0, 0.0),
+            Point3::new(2.775, 2.775, 5.550),
+            Vector3::new(-5.550, 0.0, 0.0),
+            Vector3::new(0.0, 5.550, 0.0),
             lambertian_white,
             false,
         ));
 
-        objects.add(Sphere::new(
-            Point3::new(190.0, 90.0, 190.0),
-            90.0,
-            dielectric,
-            true,
-        ));
+        objects.add(Sphere::new(Point3::new(1.900, 0.900, 1.900), 0.900, dielectric, true));
 
         // Light
         objects.add(Quad::new(
-            Point3::new(278.0, 554.0, 279.5),
-            Vector3::new(130.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 105.0),
+            Point3::new(2.780, 5.540, 2.795),
+            Vector3::new(1.300, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.050),
             light,
             true,
         ));
 
         let mut cube = RenderObjectList::cube(
-            Point3::new(82.5, 165.0, 82.5),
-            165.0,
-            330.0,
-            165.0,
+            Point3::new(0.825, 1.650, 0.825),
+            1.650,
+            3.300,
+            1.650,
             lambertian_white,
             false,
         );
@@ -219,18 +288,18 @@ impl Scene {
             &Vector3::y_axis(),
             degree_to_radian(15.0),
         ));
-        cube.translate(Translation3::new(265.0, 0.0, 295.0));
+        cube.translate(Translation3::new(2.650, 0.0, 2.950));
 
         objects.add(cube);
 
         let camera_parameters = CameraParameters {
-            initial_position: Point3::new(278.0, 278.0, -800.0),
-            initial_look_at: Point3::new(278.0, 278.0, 0.0),
+            initial_position: Point3::new(2.780, 2.780, -8.000),
+            initial_look_at: Point3::new(2.780, 2.780, 0.0),
             vfov: 40.0,
             up: Vector3::y_axis(),
-            focus_distance: 10.0,
+            focus_distance: 1.0,
             defocus_angle: 0.0,
-            movement_speed: 200.0,
+            movement_speed: 2.0,
             rotation_scale: Vector3::new(0.2, 0.1, 0.0),
         };
 

@@ -13,6 +13,7 @@ const VEC3F_UNIT_Y: vec3f = vec3f(0.0, 1.0, 0.0);
 const VEC3F_UNIT_Z: vec3f = vec3f(0.0, 0.0, 1.0);
 const VEC3F_ZEROS: vec3f = vec3f(0.0, 0.0, 0.0);
 const MAT3X3F_IDENTITY: mat3x3f = mat3x3f(VEC3F_UNIT_X, VEC3F_UNIT_Y, VEC3F_UNIT_Z);
+const F32_POSITIVE_MIN: f32 = 0x1p-126f;
 
 /*---------------------------------------- Privates ---------------------------------------------*/
 
@@ -24,7 +25,7 @@ var<private> pixel_position: vec2<f32>;
 var<uniform> context: RenderContext;
 
 @group(0) @binding(1)
-var<storage, read_write> pixel_color: array<array<f32, 3>>; // 这里如果内部使用 vec3 会浪费 4 个字节用于对齐
+var<storage, read_write> pixel_color: array<array<f32, 3>>; // 这里如果使用 vec3 会浪费 4 个字节用于对齐
 
 @group(0) @binding(2)
 var<storage, read> primitives: array<Primitive>;
@@ -148,15 +149,14 @@ fn ray_color(
         }
 
         if !hit_record.hit {
-            let background = vec3f(0.0, 0.0, 0.0); // TODO
+            let background = vec3f(0.0, 0.0, 0.0);
             return resolve_ray_color(stack_id, background);
         }
 
-        let emitted_color = Material_emit(hit_record.material_type, hit_record.material_id, ray, &hit_record);
+        let emitted_color = Material_emit(ray, &hit_record);
 
         var scatter_record: ScatterRecord;
-        if !Material_scatter(hit_record.material_type, hit_record.material_id, 
-                             ray, &hit_record, &scatter_record) 
+        if !Material_scatter(ray, &hit_record, &scatter_record) 
         {
             return resolve_ray_color(stack_id, emitted_color);
         }
@@ -172,24 +172,36 @@ fn ray_color(
         var scattered_ray: Ray;
         var scattered_origin = hit_record.position;
         scattered_ray.origin = scattered_origin;
-        if randomf() > 0.5 {
+
+        // importance only
+        // scattered_ray.direction = importance_random(&scattered_origin);
+        // let pdf_value = importance_pdf_value(&scattered_ray);
+        // if pdf_value == 0 {
+        //     return VEC3F_ZEROS;
+        // }
+
+        // material only
+        // scattered_ray.direction = Material_random(&scattered_origin, &hit_record);
+        // let pdf_value = Material_pdf_value(&scattered_ray, &hit_record);
+
+        // Mixed
+        let material_weight = 0.6; // this is a empirical value
+        if randomf() > material_weight {
             scattered_ray.direction = importance_random(&scattered_origin);
+            let pdf_value = importance_pdf_value(&scattered_ray);
+            if pdf_value == 0 {
+                return VEC3F_ZEROS;
+            }
         } else {
-            scattered_ray.direction = 
-                Material_random(hit_record.material_type, hit_record.material_id, &hit_record, &scattered_origin);
+            scattered_ray.direction = Material_random(&scattered_origin, &hit_record);
         }
+        let pdf_value = (1.0 - material_weight) * importance_pdf_value(&scattered_ray) 
+                        + material_weight * Material_pdf_value(&scattered_ray, &hit_record);
 
-        let pdf_value = 
-        0.5 * 
-        importance_pdf_value(&scattered_ray) 
-        + 0.5 * 
-        Material_pdf_value(hit_record.material_type, hit_record.material_id, &hit_record, &scattered_ray);
-
-        let scattering_pdf_value = 
-            Material_scattering_pdf_value(hit_record.material_type, hit_record.material_id, &hit_record, &scattered_ray);
-
-        *ray = scattered_ray;
+        let scattering_pdf_value = Material_scattering_pdf_value(&scattered_ray, &hit_record);
+        
         stack_id += 1;
+        *ray = scattered_ray;
         ray_color_stack[stack_id].skip_pdf = false;
         ray_color_stack[stack_id].color_from_emission = emitted_color;
         ray_color_stack[stack_id].attenuation = scatter_record.attenuation;
@@ -197,7 +209,7 @@ fn ray_color(
         ray_color_stack[stack_id].pdf_val = pdf_value;
     }
     
-    return resolve_ray_color(stack_id, vec3f(0.0,0.0, 0.0));
+    return resolve_ray_color(stack_id, VEC3F_ZEROS);
 }
 
 fn resolve_ray_color(
@@ -205,55 +217,34 @@ fn resolve_ray_color(
     last_color: vec3f
 ) -> vec3f {
     var color = last_color;
-
     for (var i: i32 = stack_last_index; i >= 0; i--) {
         let entry = &ray_color_stack[i];
-
         if (*entry).skip_pdf {
             color *= (*entry).attenuation;
         } else {
-            if (*entry).pdf_val == 0 { // TODO
-                return vec3f(0.0,0.0,0.0);
-            }
-            color = (*entry).color_from_emission 
-                    + ((*entry).attenuation * (*entry).scattering_pdf * color) / (*entry).pdf_val;
+            color = (*entry).color_from_emission + ((*entry).attenuation * (*entry).scattering_pdf * color) / (*entry).pdf_val;
         }
     }
-
-    if any(color > vec3f(1000.0,1000.0,1000.0)) {
-        return vec3f(0.0,0.0,0.0);
-    }
-
     return color;
 }
 
-fn importance_pdf_value(
-    ray: ptr<function, Ray>,
-) -> f32 {
-    let len = arrayLength(&importance);
-    if len == 0 {
-        return 0.0;
-    }
-
+fn importance_pdf_value(ray: ptr<function, Ray>) -> f32 {
+    // arrayLength 得到的长度不正确，可能是因为对齐
+    // let len = arrayLength(&importance);
+    let len = context.important_index_len;
     var pdf = 0.0;
     for (var i: u32 = 0; i < len; i++) {
         let primitive_type = primitives[importance[i]].primitive_type;
         let primitive_id = primitives[importance[i]].primitive_id;
         pdf += Primitive_pdf_value(primitive_type, primitive_id, ray);
     }
-
     return pdf / f32(len);
 }
 
-fn importance_random(
-    origin: ptr<function, vec3f>,
-) -> vec3f {
-    let len = arrayLength(&importance);
-    if len == 0 {
-        return vec3f(0.0, 0.0, 0.0);
-    }
-
-    var i = randomu_range(0u, len - 1);
+fn importance_random(origin: ptr<function, vec3f>) -> vec3f {
+    // let len = arrayLength(&importance);
+    let len = context.important_index_len;
+    var i = randomi_range(0, i32(len - 1));
     let primitive_type = primitives[importance[i]].primitive_type;
     let primitive_id = primitives[importance[i]].primitive_id;
     return Primitive_random(primitive_type, primitive_id, origin);
@@ -276,7 +267,8 @@ struct RenderContext {
     defocus_disk_v: vec3f,
     sample_id: u32,
     camera_position: vec3f,
-    ray_bounces: u32
+    ray_bounces: u32,
+    important_index_len: u32
 }
 
 /*------------------------------------- Scatter Record ------------------------------------------*/
@@ -290,18 +282,16 @@ struct ScatterRecord {
 /*---------------------------------------- Materials --------------------------------------------*/
 
 fn Material_scatter(
-    material_type: u32,
-    material_id: u32,
     ray_in: ptr<function, Ray>,
     hit_record: ptr<function, HitRecord>,
     scatter_record: ptr<function, ScatterRecord>
 ) -> bool {
-    switch (material_type) {
+    switch ((*hit_record).material_type) {
         case 1u: { // Lambertian
-            return Lambertian_scatter(material_id, ray_in, hit_record, scatter_record);
+            return Lambertian_scatter(ray_in, hit_record, scatter_record);
         }
         case 3u: { // Dielectric
-            return Dielectric_scatter(material_id, ray_in, hit_record, scatter_record);
+            return Dielectric_scatter(ray_in, hit_record, scatter_record);
         }
         default: {
             return false;
@@ -310,14 +300,12 @@ fn Material_scatter(
 }
 
 fn Material_scattering_pdf_value(
-    material_type: u32,
-    material_id: u32,
-    hit_record: ptr<function, HitRecord>,
     ray: ptr<function, Ray>,
+    hit_record: ptr<function, HitRecord>,
 ) -> f32 {
-    switch (material_type) {
+    switch ((*hit_record).material_type) {
         case 1u: { // Lambertian
-            return Lambertian_scattering_pdf_value(material_id, hit_record, ray);
+            return Lambertian_scattering_pdf_value(ray, hit_record);
         }
         default: {
             return 0.0;
@@ -326,17 +314,15 @@ fn Material_scattering_pdf_value(
 }
 
 fn Material_emit(
-    material_type: u32,
-    material_id: u32,
     ray_in: ptr<function, Ray>,
-    hit_record: ptr<function, HitRecord>
+    hit_record: ptr<function, HitRecord>,
 ) -> vec3f {
-    switch (material_type) {
+    switch ((*hit_record).material_type) {
         case 0u: { // DebugNormal
-            return DebugNormal_emit(material_id, ray_in, hit_record);
+            return DebugNormal_emit(ray_in, hit_record);
         }
         case 2u: { // Diffuse Light
-            return DiffuseLight_emit(material_id, ray_in, hit_record);
+            return DiffuseLight_emit(ray_in, hit_record);
         }
         default: {
             return vec3f(0.0, 0.0, 0.0);
@@ -345,14 +331,12 @@ fn Material_emit(
 }
 
 fn Material_pdf_value(
-    material_type: u32,
-    material_id: u32,
-    hit_record: ptr<function, HitRecord>,
     ray: ptr<function, Ray>,
+    hit_record: ptr<function, HitRecord>,
 ) -> f32 {
-    switch (material_type) {
+    switch ((*hit_record).material_type) {
         case 1u: { // Lambertian
-            return Lambertian_pdf_value(material_id, hit_record, ray);
+            return Lambertian_pdf_value(ray, hit_record);
         }
         default: {
             return 0.0;
@@ -361,14 +345,12 @@ fn Material_pdf_value(
 }
 
 fn Material_random(
-    material_type: u32,
-    material_id: u32,
-    hit_record: ptr<function, HitRecord>,
     origin: ptr<function, vec3f>,
+    hit_record: ptr<function, HitRecord>,
 ) -> vec3f {
-    switch (material_type) {
+    switch ((*hit_record).material_type) {
         case 1u: { // Lambertian
-            return Lambertian_random(material_id, hit_record, origin);
+            return Lambertian_random(origin, hit_record);
         }
         default: {
             return vec3f(0.0, 0.0, 0.0);
@@ -379,7 +361,6 @@ fn Material_random(
 /*------------------------------------- DebugNormal Material ------------------------------------*/
 
 fn DebugNormal_emit(
-    material_id: u32,
     ray_in: ptr<function, Ray>,
     hit_record: ptr<function, HitRecord>,
 ) -> vec3f {
@@ -393,12 +374,11 @@ struct Lambertian {
 }
 
 fn Lambertian_scatter(
-    material_id: u32,
     ray_in: ptr<function, Ray>,
     hit_record: ptr<function, HitRecord>,
     scatter_record: ptr<function, ScatterRecord>
 ) -> bool {
-    let lambertian = &lambertian_materials[material_id];
+    let lambertian = &lambertian_materials[(*hit_record).material_id];
 
     (*scatter_record).attenuation = (*lambertian).albedo;
     (*scatter_record).skip_pdf = false;
@@ -407,31 +387,27 @@ fn Lambertian_scatter(
 }
 
 fn Lambertian_pdf_value(
-    material_id: u32,
-    hit_record: ptr<function, HitRecord>,
     ray: ptr<function, Ray>,
+    hit_record: ptr<function, HitRecord>,
 ) -> f32 {
     let cosine_theta = dot(normalize((*ray).direction), (*hit_record).normal);
-    return max(0f, cosine_theta / PI);
+    return max(0.0, cosine_theta / PI);
 }
 
 fn Lambertian_random(
-    material_id: u32,
-    hit_record: ptr<function, HitRecord>,
     origin: ptr<function, vec3f>,
+    hit_record: ptr<function, HitRecord>,
 ) -> vec3f {
     return rotation_matrix(VEC3F_UNIT_Y, (*hit_record).normal) * random_cosine_direction();
 }
 
 fn Lambertian_scattering_pdf_value(
-    material_id: u32,
-    hit_record: ptr<function, HitRecord>,
     ray: ptr<function, Ray>,
+    hit_record: ptr<function, HitRecord>,
 ) -> f32 {
     let cos_theta = dot((*hit_record).normal, normalize((*ray).direction));
     if cos_theta < 0 {
         return 0f;
-        // return 0.01f;
     } else {
         return cos_theta / PI;
     }
@@ -456,12 +432,11 @@ struct Dielectric {
 }
 
 fn Dielectric_scatter(
-    material_id: u32,
     ray_in: ptr<function, Ray>,
     hit_record: ptr<function, HitRecord>,
     scatter_record: ptr<function, ScatterRecord>
 ) -> bool {
-    let dielectric = &dielectric_materials[material_id];
+    let dielectric = &dielectric_materials[(*hit_record).material_id];
 
     (*scatter_record).attenuation = vec3f(1.0, 1.0, 1.0);
     (*scatter_record).skip_pdf = true;
@@ -478,7 +453,7 @@ fn Dielectric_scatter(
     let cannot_refract = refraction_index * sin_theta > 1.0;
 
     var out_direction: vec3f;
-    if cannot_refract || Dielectric_reflectance(material_id, cos_theta, refraction_index) > randomf() {
+    if cannot_refract || Dielectric_reflectance((*hit_record).material_id, cos_theta, refraction_index) > randomf() {
         out_direction = reflect(in_direction, (*hit_record).normal);
     } else {
         out_direction = refract(in_direction, (*hit_record).normal, refraction_index);
@@ -507,14 +482,13 @@ struct DiffuseLight {
 }
 
 fn DiffuseLight_emit(
-    material_id: u32,
     ray_in: ptr<function, Ray>,
     hit_record: ptr<function, HitRecord>
 ) -> vec3f {
     if !(*hit_record).is_front_face {
         return VEC3F_ZEROS;
     }
-    return diffuse_light_materials[material_id].emit;
+    return diffuse_light_materials[(*hit_record).material_id].emit;
 }
 
 /*----------------------------------------- Primitive --------------------------------------------*/
@@ -618,22 +592,21 @@ fn Sphere_hit(
         }
     }
 
-    (*hit_record).hit = true;
+    (*hit_record).hit = true;    
     (*hit_record).ray_t = root;
     (*hit_record).position = Ray_at(ray, root);
 
     let outward_normal = ((*hit_record).position - (*sphere).center) / (*sphere).radius;
-    (*hit_record).normal = outward_normal;
+    // let outward_normal = normalize((*hit_record).position - (*sphere).center);
     HitRecord_set_face_normal(hit_record, ray, outward_normal);
     (*hit_record).uv = Sphere_uv(outward_normal);
-
     (*hit_record).material_id = (*sphere).material_id;
     (*hit_record).material_type = (*sphere).material_type;
 
     return true;
 }
 
-fn Sphere_uv(position: vec3f) -> vec2<f32> {
+fn Sphere_uv(position: vec3f) -> vec2f {
     // p: a given point on the sphere of radius one, centered at the origin.
     // u: returned value [0,1] of angle around the Y axis from X=-1.
     // v: returned value [0,1] of angle from Y=-1 to Y=+1.
@@ -642,13 +615,15 @@ fn Sphere_uv(position: vec3f) -> vec2<f32> {
     //     <0 0 1> yields <0.25 0.50>       < 0  0 -1> yields <0.75 0.50>
     let theta = acos(-position.y);
     let phi = atan2(-position.z, position.x) + PI;
-    return vec2<f32>(phi / (2 * PI), theta / PI);
+    return vec2f(phi / (2 * PI), theta / PI);
 }
 
 fn Sphere_pdf_value(
     id: u32,
     ray: ptr<function, Ray>,
 ) -> f32 {
+    let sphere = &spheres[id];
+
     // This method only works for stationary spheres.
     var hit_record: HitRecord;
     var interval = Interval_init_2f(0.001, MAX);
@@ -657,23 +632,23 @@ fn Sphere_pdf_value(
         return 0.0;
     }
 
-    let cos_theta_max = 
-        sqrt(1 - spheres[id].radius * spheres[id].radius / length_squared(spheres[id].center - (*ray).origin));
+    let cp = (*sphere).center - (*ray).origin;
+    let cos_theta_max = sqrt(1 - pow((*sphere).radius, 2.0)  / length_squared(cp));
+
     let solid_angle = 2 * PI * (1 - cos_theta_max);
-    return 1 / solid_angle;
+    return 1.0 / solid_angle;
 }
 
-// 从球外某一点 origin 向球随机发射一条射线，返回这条射线
 fn Sphere_random(
     id: u32,
     origin: ptr<function, vec3f>
 ) -> vec3f {
-    var direction = spheres[id].center - *origin;
+    let sphere = &spheres[id];
+    var direction = (*sphere).center - *origin;
     let distance_squared = length_squared(direction);
-    return rotation_matrix(VEC3F_UNIT_Z, normalize(direction)) * random_to_sphere(spheres[id].radius, distance_squared);
+    return rotation_matrix(VEC3F_UNIT_Y, normalize(direction)) * (random_to_sphere((*sphere).radius, distance_squared));
 }
 
-// 半径为 radius 的球在原点，从 z 轴上方距离球心 distance 处随机发射一条射线，击中球上的一点，返回这条射线
 // Ray Tracing: The Rest of Your Life, p80
 fn random_to_sphere(
     radius: f32,
@@ -683,10 +658,10 @@ fn random_to_sphere(
     let xi2 = randomf();
 
     let cos_theta_max = sqrt(1 - radius * radius / distance_squared);
-    let x = 1 + xi2 * (cos_theta_max - 1);
+    let y = 1 + xi2 * (cos_theta_max - 1);
     let phi = 2 * PI * xi1;
-    let y = cos(phi) * sqrt(1 - x * x);
-    let z = sin(phi) * sqrt(1 - x * x);
+    let z = cos(phi) * sqrt(1 - y * y);
+    let x = sin(phi) * sqrt(1 - y * y);
 
     return vec3f(x, y, z);
 }
@@ -739,7 +714,6 @@ fn Quad_hit(
     (*hit_record).hit = true;
     (*hit_record).ray_t = t;
     (*hit_record).position = intersection;
-    (*hit_record).normal = (*quad).normal;
     (*hit_record).material_id = (*quad).material_id;
     (*hit_record).material_type = (*quad).material_type;
 
@@ -785,7 +759,7 @@ fn Quad_pdf_value(
     }
 
     let distance_squared = pow(hit_record.ray_t, 2.0) * length_squared((*ray).direction);
-    let cosine = abs(dot((*ray).direction, hit_record.normal) / length(hit_record.position - (*ray).origin));
+    let cosine = abs(dot((*ray).direction, hit_record.normal) / length((*ray).direction));
 
     return distance_squared / (cosine * quads[id].area);
 }
@@ -796,7 +770,7 @@ fn Quad_random(
 ) -> vec3f {
     let quad = &quads[id];
     let p = (*quad).bottom_left + randomf() * (*quad).up + randomf() * (*quad).right;
-    return p - *origin;
+    return normalize(p - *origin);
 }
 
 /*---------------------------------------- Hit Record -------------------------------------------*/
@@ -818,8 +792,9 @@ fn HitRecord_set_face_normal(
     outward_normal: vec3f
 ) {
     (*s).is_front_face = (dot((*ray).direction, outward_normal) < 0);
+    (*s).normal = outward_normal;
     if !(*s).is_front_face {
-        (*s).normal = -(*s).normal;
+        (*s).normal = -outward_normal;
     }
 }
 
@@ -947,12 +922,8 @@ fn sample_unit_square() -> vec2<f32> {
 
 // https://indico.cern.ch/event/93877/papers/2118070/files/4416-acat3.pdf
 
-fn randomu_range(min: u32, max: u32) -> u32 {
-    return u32(round(randomf_range(f32(min), f32(max))));
-}
-
 fn randomi_range(min: i32, max: i32) -> i32 {
-    return i32(round(randomf_range(f32(min), f32(max))));
+    return i32(floor(randomf_range(f32(min), f32(max + 1))));
 }
 
 fn randomf_range(min: f32, max: f32) -> f32 {
@@ -969,7 +940,8 @@ fn randomf() -> f32 {
     random_state.r = random_state.z1 ^ random_state.z2 ^ random_state.z3 ^ random_state.z4;
 
     var value = 2.3283064365387e-10f * f32(random_state.r); // [0, 1]
-    return value;
+    return max(0.0, min(value - F32_POSITIVE_MIN, 1.0)); // [0, 1)
+    // return value;
 }
 
 struct RandomGeneratorState {
@@ -1027,10 +999,11 @@ fn srgb_to_linear(color: vec3f) -> vec3f {
 // https://cs.brown.edu/people/jhughes/papers/Moller-EBA-1999/paper.pdf
 
 fn rotation_matrix(unit_from: vec3f, unit_to: vec3f) -> mat3x3f { // require inputs are unit vectors
-    let c = abs(dot(unit_from, unit_to));
-    if c <= 0.99 {
+    let c = dot(unit_from, unit_to);
+    if abs(c) <= 0.99 {
         let v = cross(unit_from, unit_to);
-        let h = (1 - c) / dot(v, v);
+        // let h = (1 - c) / dot(v, v);
+        let h = 1 / (1 + c);
 
         let hxx = h * v.x * v.x;
         let hxy = h * v.x * v.y;
@@ -1039,11 +1012,11 @@ fn rotation_matrix(unit_from: vec3f, unit_to: vec3f) -> mat3x3f { // require inp
         let hyz = h * v.y * v.z;
         let hzz = h * v.z * v.z;
 
-        let c1 = vec3f(c + hxx, hxy + v.z, hxz - v.y);
-        let c2 = vec3f(hxy - v.z, c + hyy, hyz + v.x);
-        let c3 = vec3f(hxz + v.y, hyz - v.x, c + hzz);
+        let c1 = vec3(c + hxx, hxy + v.z, hxz - v.y);
+        let c2 = vec3(hxy - v.z, c + hyy, hyz + v.x);
+        let c3 = vec3(hxz + v.y, hyz - v.x, c + hzz);
 
-        return mat3x3f(c1, c2, c3);
+        return mat3x3(c1, c2, c3);
     } else {
         let xmin = unit_from.x < unit_from.y && unit_from.x < unit_from.z;
         let ymin = unit_from.y < unit_from.x && unit_from.y < unit_from.z;

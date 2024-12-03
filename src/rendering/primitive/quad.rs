@@ -65,7 +65,7 @@ impl Transformable for Quad {
 impl Mesh for Quad {
     fn primitives(&mut self, primitives: &mut Vec<Rc<Primitive>>, important_indices: &mut Vec<u32>) {
         if self.important {
-            important_indices.push(important_indices.len() as u32);
+            important_indices.push(primitives.len() as u32);
         }
         
         if self.primitive.is_none() {
@@ -128,7 +128,7 @@ impl QuadData {
         let normal = n.normalize();
         let d = normal.dot(&bottom_left.coords);
         let w = normal / normal.dot(&n);
-        let area = normal.norm_squared();
+        let area = n.norm();
 
         Self {
             bottom_left,

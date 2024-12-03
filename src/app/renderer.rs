@@ -64,25 +64,6 @@ impl<'a> RendererParameters<'a> {
 
 impl Renderer {
     pub fn new(wgpu: Ref<Wgpu>, parameters: &RendererParameters) -> Self {
-        let (width, height) = parameters.window.inner_size().into();
-        let render_context = RenderContext::new(
-            &parameters.camera,
-            width,
-            height,
-            parameters.samples_per_pixel,
-            parameters.max_ray_bounces,
-        );
-
-        let render_context_uniform_buffer = WgpuBindBuffer::new(
-            &wgpu,
-            "ray tracing context",
-            size_of_val(&render_context) as BufferAddress,
-            BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            ShaderStages::COMPUTE | ShaderStages::FRAGMENT,
-            true,
-        );
-        render_context_uniform_buffer.write(&wgpu, 0, bytemuck::bytes_of(&render_context));
-
         let mut primitives_data = Vec::new();
         let mut quads_data = Vec::new();
         let mut spheres_data = Vec::new();
@@ -211,6 +192,26 @@ impl Renderer {
         );
 
         let egui_renderer = EguiRenderer::new(&parameters.window, &wgpu.device, wgpu.surface_configuration.format);
+
+        let (width, height) = parameters.window.inner_size().into();
+        let render_context = RenderContext::new(
+            &parameters.camera,
+            width,
+            height,
+            parameters.samples_per_pixel,
+            parameters.max_ray_bounces,
+            parameters.important_indices.len() as u32,
+        );
+
+        let render_context_uniform_buffer = WgpuBindBuffer::new(
+            &wgpu,
+            "ray tracing context",
+            size_of_val(&render_context) as BufferAddress,
+            BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            ShaderStages::COMPUTE | ShaderStages::FRAGMENT,
+            true,
+        );
+        render_context_uniform_buffer.write(&wgpu, 0, bytemuck::bytes_of(&render_context));
 
         Self {
             render_context,
