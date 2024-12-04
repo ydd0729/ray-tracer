@@ -81,7 +81,7 @@ impl App {
         let scene_ref = scene.borrow();
 
         let gui_state = RefCell::new(GuiState::new(
-            9000,
+            500,
             32,
             CameraUpdateParameters {
                 vfov: scene_ref.camera_parameters.vfov,
@@ -147,8 +147,7 @@ impl App {
 
         self.camera_mut().translate(translation);
 
-        self.camera_mut().update(self.gui_state().camera_update_parameters());
-
+        self.camera_mut().on_update(self.gui_state().camera_update_parameters());
         self.renderer_mut()
             .on_update(window, self.wgpu(), delta_time, self.camera_mut(), self.gui_state_mut());
 

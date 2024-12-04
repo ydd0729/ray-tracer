@@ -75,12 +75,12 @@ impl GuiState {
             ui.add(egui::Slider::new(&mut self.camera_update_parameters.vfov, 10.0..=90.0));
             ui.end_row();
 
-            ui.label("Focus Distance");
-            ui.add(egui::Slider::new(
-                &mut self.camera_update_parameters.focus_distance,
-                0.1..=3.0,
-            ));
-            ui.end_row();
+            // ui.label("Focus Distance");
+            // ui.add(egui::Slider::new(
+            //     &mut self.camera_update_parameters.focus_distance,
+            //     0.1..=10.0,
+            // ));
+            // ui.end_row();
 
             // ui.label("Defocus Angle");
             // ui.add(egui::Slider::new(&mut self.camera_update_parameters.defocus_angle, 0.0..=1.0));
@@ -89,7 +89,7 @@ impl GuiState {
             ui.label("Movement Speed");
             ui.add(egui::Slider::new(
                 &mut self.camera_update_parameters.movement_speed,
-                0.1..=3.0,
+                0.1..=5.0,
             ));
             ui.end_row();
 

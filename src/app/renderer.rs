@@ -11,7 +11,6 @@ use crate::rendering::wgpu::*;
 use crate::rendering::RenderContext;
 use crate::time;
 use crate::RAY_TRACING_SHADER;
-use bytemuck::offset_of;
 use egui_winit::EventResponse;
 use log::info;
 use nalgebra::Point4;
@@ -276,12 +275,12 @@ impl Renderer {
 
         if self.take_rerender() {
             self.render_context.reset_sample_id();
-            info!("{:?}", self.render_context.sample_id);
+            // info!("{:?}", self.render_context.sample_id);
             self.frames_count = 0;
             self.frames_time = Some(time::Instant::now());
         } else if self.render_context.sample_id < self.render_context.samples_per_pixel {
             self.render_context.increment_sample_id();
-            info!("{:?}", self.render_context.sample_id);
+            // info!("{:?}", self.render_context.sample_id);
         }
 
         self.render_context_uniform_buffer.write(
@@ -364,11 +363,6 @@ impl Renderer {
     ) {
         if self.render_context.max_ray_bounces != gui_state.max_ray_bounces() {
             self.render_context.max_ray_bounces = gui_state.max_ray_bounces();
-            self.render_context_uniform_buffer.write(
-                &wgpu,
-                offset_of!(RenderContext, max_ray_bounces),
-                bytemuck::bytes_of(&self.render_context.max_ray_bounces),
-            );
             self.should_rerender = true;
         }
 

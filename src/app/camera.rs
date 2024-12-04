@@ -118,7 +118,7 @@ impl Camera {
         if translation == Vector3::zeros() {
             return;
         }
-        
+
         let movement_distance = translation * self.movement_speed;
         self.position +=
             self.u.scale(movement_distance.x) + self.v.scale(movement_distance.y) - self.w.scale(movement_distance.z);
@@ -176,7 +176,7 @@ impl Camera {
         self.v = UnitVector3::new_normalize(self.w.cross(&self.u));
     }
 
-    pub fn update(&mut self, update_parameters: &CameraUpdateParameters) {
+    pub fn on_update(&mut self, update_parameters: &CameraUpdateParameters) {
         if self.vfov != update_parameters.vfov {
             self.vfov = update_parameters.vfov;
             self.should_rerender = true;
