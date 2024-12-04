@@ -1,6 +1,6 @@
 use crate::app::gui_state::GuiState;
 use crate::rendering::wgpu::Wgpu;
-use crate::{time, FONT_SOURCE_HANS_SANS_CN_MEDIUM, FONT_SOURCE_HANS_SANS_CN_MEDIUM_NAME};
+use crate::{time, FONT, FONT_NAME};
 use egui::{ClippedPrimitive, FontData, FontDefinitions, FontFamily, TexturesDelta};
 use egui_winit::EventResponse;
 use wgpu::*;
@@ -25,15 +25,14 @@ impl EguiRenderer {
         // Font
         let mut fonts = FontDefinitions::default();
 
-        fonts.font_data.insert(
-            FONT_SOURCE_HANS_SANS_CN_MEDIUM_NAME.to_owned(),
-            FontData::from_static(&FONT_SOURCE_HANS_SANS_CN_MEDIUM),
-        );
+        fonts
+            .font_data
+            .insert(FONT_NAME.to_owned(), FontData::from_static(&FONT));
         fonts
             .families
             .get_mut(&FontFamily::Proportional)
             .unwrap()
-            .insert(0, FONT_SOURCE_HANS_SANS_CN_MEDIUM_NAME.to_owned());
+            .insert(0, FONT_NAME.to_owned());
 
         gui_context.set_fonts(fonts);
 
