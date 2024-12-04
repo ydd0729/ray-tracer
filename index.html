@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1" name="viewport"/>
+    <title>Ray Tracer</title>
+    <base href="/" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            height: 100%;
+            width: 100%;
+        }
+
+        canvas {
+            display: flex;
+            background: black;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+<link rel="modulepreload" href="/renderer-ebe9358fc9500dbf.js" crossorigin=anonymous integrity="sha384-Y8loGUVpsNadpzHq7yc0ddB2zgveNTaio1Qka6Oy799ANc7ohCMLyKqWOsslLO2H"><link rel="preload" href="/renderer-ebe9358fc9500dbf_bg.wasm" crossorigin=anonymous integrity="sha384-t6pST/rlZy/uXJBLvCijeA6oD1BR/D2Mjuh8o0sPeCTflyppt6ZBYM9p+WAwzFRn" as="fetch" type="application/wasm"></head>
+
+<body id="root">
+
+<script type="module" nonce="j4pMZhDnNb3eFacV4egK+g==">
+import init, * as bindings from '/renderer-ebe9358fc9500dbf.js';
+const wasm = await init({ module_or_path: '/renderer-ebe9358fc9500dbf_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+</body>
+</html>
