@@ -121,7 +121,7 @@ impl GuiState {
         ui.add_space(12.0);
         ui.label("You can hold the right mouse button to enter fly-through mode. Use your mouse to rotate the camera, and WASDQE to move.");
         ui.add_space(12.0);
-        ui.hyperlink_to(format!("{GITHUB} Repository"), "https://github.com/ydd0729/ray-tracer");
+        ui.label(format!("{GITHUB} https://github.com/ydd0729/ray-tracer"));
         ui.add_space(1.0);
     }
 

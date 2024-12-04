@@ -88,8 +88,10 @@ impl EguiRenderer {
             textures_delta,
             shapes,
             pixels_per_point,
+            platform_output,
             ..
         } = self.egui_state.egui_ctx().end_pass();
+        self.egui_state.handle_platform_output(window, platform_output); // TODO 无效，不能打开 URL 链接
 
         let paint_jobs = self.egui_state.egui_ctx().tessellate(shapes, pixels_per_point);
 
