@@ -14,5 +14,5 @@ pub fn radian_to_degree(radian: f32) -> f32 {
 }
 
 pub fn nearly_same_direction(a: &UnitVector3<f32>, b: &UnitVector3<f32>) -> bool {
-    a.dot(&b).abs() > 0.999
+    a.dot(b).abs() > 0.999
 }

@@ -1,7 +1,7 @@
 use crate::app::gui_state::GuiState;
 use crate::rendering::wgpu::Wgpu;
 use crate::{time, FONT_SOURCE_HANS_SANS_CN_MEDIUM, FONT_SOURCE_HANS_SANS_CN_MEDIUM_NAME};
-use egui::{ClippedPrimitive, FontData, FontDefinitions, FontFamily, Rounding, Shadow, TexturesDelta};
+use egui::{ClippedPrimitive, FontData, FontDefinitions, FontFamily, TexturesDelta};
 use egui_winit::EventResponse;
 use wgpu::*;
 use winit::window::{Theme, Window};
@@ -75,13 +75,13 @@ impl EguiRenderer {
         self.egui_state.egui_ctx().begin_pass(gui_input);
 
         self.egui_state.egui_ctx().set_visuals(egui::Visuals {
-            window_shadow: Shadow::NONE, // 移除窗口阴影
-            window_rounding: Rounding::same(8.0),
-            // window_highlight_topmost: false,
+            // window_shadow: Shadow::NONE, // 移除窗口阴影
+            // window_rounding: Rounding::same(8.0),
+            window_highlight_topmost: false,
             ..Default::default()
         });
 
-        let gui_window = egui::Window::new("TextEdit");
+        let gui_window = egui::Window::new("Ray Tracer").default_width(288.0);
         gui_window.show(self.egui_state.egui_ctx(), |ui| gui_state.create_ui(ui));
 
         let egui::FullOutput {

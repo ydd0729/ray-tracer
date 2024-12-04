@@ -9,7 +9,7 @@ pub enum MaterialType {
     DebugNormal,
     Lambertian,
     DiffuseLight,
-    Dielectric
+    Dielectric,
 }
 
 pub trait Material {
@@ -31,16 +31,14 @@ pub struct MaterialList {
 
 impl MaterialList {
     pub fn add(&mut self, material: Box<dyn Material>) -> MaterialHandle {
-        if !self.map.contains_key(&material.material_type()) {
-            self.map.insert(material.material_type(), Vec::new());
-        }
+        self.map.entry(material.material_type()).or_default();
         let vec = self.map.get_mut(&material.material_type()).unwrap();
         let handler = MaterialHandle {
             material_type: material.material_type() as u32,
             material_id: vec.len() as u32,
         };
         vec.push(material);
-        return handler;
+        handler
     }
 }
 

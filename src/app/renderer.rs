@@ -9,6 +9,7 @@ use crate::rendering::primitive::sphere::SphereData;
 use crate::rendering::primitive::*;
 use crate::rendering::wgpu::*;
 use crate::rendering::RenderContext;
+use crate::time;
 use crate::RAY_TRACING_SHADER;
 use bytemuck::offset_of;
 use egui_winit::EventResponse;
@@ -28,7 +29,6 @@ use winit::dpi::PhysicalSize;
 pub struct Renderer {
     render_context: RenderContext,
     render_context_uniform_buffer: WgpuBindBuffer,
-    // primitives_storage_buffer: WgpuBindBuffer,
     bvh_storage_buffer: WgpuBindBuffer,
     important_indices_storage_buffer: WgpuBindBuffer,
     quads_storage_buffer: WgpuBindBuffer,
@@ -39,7 +39,9 @@ pub struct Renderer {
     pixel_color_storage_buffer: WgpuBindBuffer,
     egui_renderer: EguiRenderer,
     should_rerender: bool,
-    samples_per_pixel: u32,
+    frames_time: Option<time::Instant>,
+    frames_count: u32,
+    frames_per_second: u32,
 }
 
 pub struct RendererParameters<'a> {
@@ -56,10 +58,17 @@ pub struct RendererParameters<'a> {
     pub materials: &'a MaterialList,
 }
 
-impl<'a> RendererParameters<'a> {
+impl RendererParameters<'_> {
     pub fn max_pixels(&self) -> u32 {
         self.max_width * self.max_height
     }
+}
+
+#[derive(Default)]
+pub struct RenderStatue {
+    pub sampled_count: u32,
+    pub total_sample: u32,
+    pub frames_per_second: u32,
 }
 
 impl Renderer {
@@ -83,7 +92,7 @@ impl Renderer {
                         primitive_type: (*primitive).into(),
                         primitive_id: quads_data.len() as u32,
                     });
-                    quads_data.push(quad.clone());
+                    quads_data.push(*quad);
                 }
                 PrimitiveData::Sphere(sphere) => {
                     bvh_building.push(BvhBuildingEntry {
@@ -96,7 +105,7 @@ impl Renderer {
                         primitive_type: (*primitive).into(),
                         primitive_id: spheres_data.len() as u32,
                     });
-                    spheres_data.push(sphere.clone());
+                    spheres_data.push(*sphere);
                 }
             }
         }
@@ -109,10 +118,8 @@ impl Renderer {
         let mut bvh_tree = Vec::new();
         build_bvh_tree(&mut bvh_tree, &mut bvh_building, 0, len, 0);
 
-        let mut i = 0;
-        for node in &bvh_tree {
+        for (i, node) in bvh_tree.iter().enumerate() {
             info!("{} = {:?}\n", i, node);
-            i += 1;
         }
         let bvh_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
@@ -123,16 +130,6 @@ impl Renderer {
             true,
         );
         bvh_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(bvh_tree.as_slice()));
-
-        // let primitives_storage_buffer = WgpuBindBuffer::new(
-        //     &wgpu,
-        //     "primitive storage",
-        //     (size_of::<PrimitiveIndex>() * cmp::max(primitives_index.len(), 1)) as BufferAddress,
-        //     BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        //     ShaderStages::COMPUTE,
-        //     true,
-        // );
-        // primitives_storage_buffer.write(&wgpu, 0, bytemuck::cast_slice(primitives_index.as_slice()));
 
         let important_indices_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
@@ -173,19 +170,19 @@ impl Renderer {
                 MaterialType::Lambertian => lambertian_materials.append(
                     &mut materials
                         .iter()
-                        .map(|material| material.as_any().downcast_ref::<Lambertian>().unwrap().clone())
+                        .map(|material| *material.as_any().downcast_ref::<Lambertian>().unwrap())
                         .collect(),
                 ),
                 MaterialType::DiffuseLight => diffuse_light_materials.append(
                     &mut materials
                         .iter()
-                        .map(|material| material.as_any().downcast_ref::<DiffuseLight>().unwrap().clone())
+                        .map(|material| *material.as_any().downcast_ref::<DiffuseLight>().unwrap())
                         .collect(),
                 ),
                 MaterialType::Dielectric => dielectric_materials.append(
                     &mut materials
                         .iter()
-                        .map(|material| material.as_any().downcast_ref::<Dielectric>().unwrap().clone())
+                        .map(|material| *material.as_any().downcast_ref::<Dielectric>().unwrap())
                         .collect(),
                 ),
             }
@@ -255,7 +252,6 @@ impl Renderer {
             render_context,
             render_context_uniform_buffer,
             bvh_storage_buffer,
-            // primitives_storage_buffer,
             important_indices_storage_buffer,
             quads_storage_buffer,
             spheres_storage_buffer,
@@ -264,12 +260,16 @@ impl Renderer {
             dielectric_materials_storage_buffer,
             pixel_color_storage_buffer,
             egui_renderer,
-            samples_per_pixel: parameters.samples_per_pixel,
             should_rerender: false,
+            frames_time: None,
+            frames_count: 0,
+            frames_per_second: 0
         }
     }
 
-    pub fn render(&mut self, wgpu: Ref<Wgpu>, surface: WgpuTexture) {
+    pub fn render(&mut self, wgpu: Ref<Wgpu>, surface: WgpuTexture) -> RenderStatue {
+        self.frames_count += 1;
+
         let mut encoder = wgpu.device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
@@ -277,6 +277,8 @@ impl Renderer {
         if self.take_rerender() {
             self.render_context.reset_sample_id();
             info!("{:?}", self.render_context.sample_id);
+            self.frames_count = 0;
+            self.frames_time = Some(time::Instant::now());
         } else if self.render_context.sample_id < self.render_context.samples_per_pixel {
             self.render_context.increment_sample_id();
             info!("{:?}", self.render_context.sample_id);
@@ -295,7 +297,6 @@ impl Renderer {
             &[
                 &self.render_context_uniform_buffer,
                 &self.pixel_color_storage_buffer,
-                // &self.primitives_storage_buffer,
                 &self.bvh_storage_buffer,
                 &self.important_indices_storage_buffer,
                 &self.quads_storage_buffer,
@@ -327,6 +328,23 @@ impl Renderer {
             .render(&wgpu, &mut encoder, surface.texture_view(), None);
 
         wgpu.queue.submit(Some(encoder.finish()));
+
+        if self.frames_time.is_none() {
+            self.frames_time = Some(time::Instant::now());
+        } else {
+            let elapsed = self.frames_time.as_ref().unwrap().elapsed().as_secs_f32();
+            if elapsed > 0.5 {
+                self.frames_per_second = (self.frames_count as f32 / elapsed).round() as u32;
+                self.frames_time = Some(time::Instant::now());
+                self.frames_count = 0;
+            }
+        }
+        
+        RenderStatue {
+            sampled_count: self.render_context.sample_id,
+            total_sample: self.render_context.samples_per_pixel,
+            frames_per_second: self.frames_per_second,
+        }
     }
 
     pub fn on_resize(&mut self, wgpu: Ref<Wgpu>, size: &PhysicalSize<u32>, camera: Ref<Camera>) {
@@ -354,8 +372,8 @@ impl Renderer {
             self.should_rerender = true;
         }
 
-        if self.samples_per_pixel != gui_state.samples_per_pixel() {
-            self.samples_per_pixel = gui_state.samples_per_pixel();
+        if self.render_context.samples_per_pixel != gui_state.samples_per_pixel() {
+            self.render_context.set_samples_per_pixel(gui_state.samples_per_pixel());
             self.should_rerender = true;
         }
 

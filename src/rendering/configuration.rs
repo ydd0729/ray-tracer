@@ -24,7 +24,6 @@ pub struct RenderContext {
     pub max_ray_bounces: u32,
     pub important_index_len: u32,
     _padding: [u32; 3],
-
 }
 
 impl RenderContext {
@@ -36,9 +35,11 @@ impl RenderContext {
         max_ray_bounces: u32,
         important_index_len: u32,
     ) -> Self {
-        let mut configuration = RenderContext::default();
-        configuration.max_ray_bounces = max_ray_bounces;
-        configuration.important_index_len = important_index_len;
+        let mut configuration = Self {
+            max_ray_bounces,
+            important_index_len,
+            ..Default::default()
+        };
 
         configuration.set_samples_per_pixel(samples_per_pixel);
         configuration.update(camera, width, height);

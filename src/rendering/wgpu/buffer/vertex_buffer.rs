@@ -4,6 +4,7 @@ use crate::rendering::Vertex;
 use getset::{CopyGetters, Getters};
 use wgpu::{Buffer, BufferAddress, BufferUsages, VertexBufferLayout, VertexStepMode};
 
+#[allow(clippy::len_without_is_empty)]
 #[derive(Getters, CopyGetters)]
 pub struct WgpuVertexBuffer {
     buffer: WgpuBuffer,

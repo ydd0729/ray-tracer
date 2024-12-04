@@ -22,7 +22,7 @@ pub trait IWgpuBuffer {
     }
 
     fn write(&self, wgpu: &Wgpu, offset: usize, data: &[u8]) {
-        wgpu.queue.write_buffer(&self.buffer(), offset as BufferAddress, data);
+        wgpu.queue.write_buffer(self.buffer(), offset as BufferAddress, data);
     }
 }
 

@@ -1,7 +1,7 @@
 pub mod bounding_box;
 pub mod bvh;
 pub mod configuration;
-pub mod graphics_api;
+pub mod wgpu;
 mod interval;
 pub mod material;
 pub mod mesh;
@@ -10,5 +10,5 @@ mod vertex;
 
 #[allow(unused)]
 pub use configuration::*;
-pub use graphics_api::*;
+pub use wgpu::*;
 pub use vertex::*;

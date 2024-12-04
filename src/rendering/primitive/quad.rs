@@ -127,6 +127,6 @@ impl Bound for QuadData {
     fn bounding_box(&self) -> BoundingBox {
         let box1 = BoundingBox::new_from_points(self.bottom_left, self.bottom_left + self.right + self.up);
         let box2 = BoundingBox::new_from_points(self.bottom_left + self.right, self.bottom_left + self.up);
-        return BoundingBox::new_from_boxes(&box1, &box2);
+        BoundingBox::new_from_boxes(&box1, &box2)
     }
 }

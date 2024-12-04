@@ -58,7 +58,7 @@ impl BoundingBox {
 
     pub fn merge(&mut self, other: &BoundingBox) {
         for i in 0..3 {
-            self.axis_mut(i).merge(&other.axis(i));
+            self.axis_mut(i).merge(other.axis(i));
         }
     }
 

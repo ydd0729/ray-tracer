@@ -80,18 +80,17 @@ impl App {
         // let scene = RefCell::new(Scene::scene_light_huge());
         let scene_ref = scene.borrow();
 
-        let gui_state = RefCell::new(GuiState {
-            checkbox: false,
-            samples_per_pixel: 10000,
-            max_ray_bounces: 16,
-            camera_update_parameters: CameraUpdateParameters {
+        let gui_state = RefCell::new(GuiState::new(
+            9000,
+            32,
+            CameraUpdateParameters {
                 vfov: scene_ref.camera_parameters.vfov,
                 focus_distance: scene_ref.camera_parameters.focus_distance,
                 defocus_angle: scene_ref.camera_parameters.defocus_angle,
                 movement_speed: scene_ref.camera_parameters.movement_speed,
                 rotation_scale: scene_ref.camera_parameters.rotation_scale,
             },
-        });
+        ));
 
         let camera = RefCell::new(Camera::new(&scene_ref.camera_parameters));
 
@@ -148,6 +147,8 @@ impl App {
 
         self.camera_mut().translate(translation);
 
+        self.camera_mut().update(self.gui_state().camera_update_parameters());
+
         self.renderer_mut()
             .on_update(window, self.wgpu(), delta_time, self.camera_mut(), self.gui_state_mut());
 
@@ -181,7 +182,8 @@ impl App {
             },
         );
 
-        self.renderer_mut().render(self.wgpu(), wgpu_surface_storage);
+        let status = self.renderer_mut().render(self.wgpu(), wgpu_surface_storage);
+        self.gui_state_mut().update(status);
 
         surface_texture.present();
     }
@@ -398,7 +400,7 @@ impl App {
     fn on_wgpu_received(&mut self) {
         let mut primitives = Vec::new();
         let mut important_indices = Vec::new();
-        
+
         self.scene_mut().primitives(&mut primitives, &mut important_indices);
         info!("important_indices={:?}", important_indices);
         let scene = self.scene();
@@ -412,7 +414,7 @@ impl App {
             camera: self.camera(),
             primitives: &primitives,
             important_indices: &important_indices,
-            materials: &scene.materials
+            materials: &scene.materials,
         };
         let renderer = RefCell::new(Renderer::new(self.wgpu(), &render_parameter));
 

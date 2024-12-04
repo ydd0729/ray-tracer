@@ -20,7 +20,7 @@ pub struct Camera {
     defocus_angle: f32, // Variation angle of rays through each pixel
 
     movement_speed: f32,
-    rotation_scale: Vector3<f32>,
+    rotation_scale: f32,
 
     // Camera frame basis vectors
     #[getset(get = "pub")]
@@ -60,7 +60,7 @@ pub struct CameraParameters {
     pub focus_distance: f32,
     pub defocus_angle: f32,
     pub movement_speed: f32,
-    pub rotation_scale: Vector3<f32>,
+    pub rotation_scale: f32,
 }
 
 #[derive(Default)]
@@ -69,7 +69,7 @@ pub struct CameraUpdateParameters {
     pub focus_distance: f32,
     pub defocus_angle: f32,
     pub movement_speed: f32,
-    pub rotation_scale: Vector3<f32>,
+    pub rotation_scale: f32,
 }
 
 impl Default for CameraParameters {
@@ -132,13 +132,13 @@ impl Camera {
         // 向左旋转
         rotation_changed |= self.try_rotate(&UnitQuaternion::from_axis_angle(
             &self.v,
-            degree_to_radian(delta.x * self.rotation_scale.x),
+            degree_to_radian(delta.x * self.rotation_scale),
         ));
 
         // 向上旋转
         rotation_changed |= self.try_rotate(&UnitQuaternion::from_axis_angle(
             &self.u,
-            degree_to_radian(delta.y * self.rotation_scale.y),
+            degree_to_radian(delta.y * self.rotation_scale),
         ));
 
         if rotation_changed {
@@ -167,7 +167,7 @@ impl Camera {
     }
 
     fn nearly_up(&self, unit_vector: &UnitVector3<f32>) -> bool {
-        nearly_same_direction(&self.up, &unit_vector)
+        nearly_same_direction(&self.up, unit_vector)
     }
 
     fn update_camera_frame(&mut self) {
@@ -193,6 +193,6 @@ impl Camera {
         }
 
         self.movement_speed = update_parameters.movement_speed;
-        self.rotation_scale = update_parameters.rotation_scale;
+        self.rotation_scale = update_parameters.rotation_scale / 10.0;
     }
 }

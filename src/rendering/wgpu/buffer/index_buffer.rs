@@ -3,6 +3,7 @@ use crate::rendering::wgpu::{IWgpuBuffer, Wgpu};
 use getset::CopyGetters;
 use wgpu::{Buffer, BufferAddress, BufferUsages, IndexFormat};
 
+#[allow(clippy::len_without_is_empty)]
 #[derive(CopyGetters)]
 pub struct WgpuIndexBuffer {
     buffer: WgpuBuffer,

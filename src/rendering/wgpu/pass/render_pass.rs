@@ -64,6 +64,7 @@ impl WgpuRenderPass {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
         encoder: &mut CommandEncoder,

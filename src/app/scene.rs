@@ -42,7 +42,7 @@ impl Scene {
             focus_distance: 1.0,
             defocus_angle: 0.0,
             movement_speed: 1.0,
-            rotation_scale: Vector3::new(0.2, 0.1, 0.0),
+            rotation_scale: 0.2,
         };
 
         Self {
@@ -76,7 +76,7 @@ impl Scene {
             focus_distance: 1.0,
             defocus_angle: 0.0,
             movement_speed: 1.2,
-            rotation_scale: Vector3::new(0.2, 0.1, 0.0),
+            rotation_scale: 0.2,
         };
 
         Self {
@@ -133,7 +133,7 @@ impl Scene {
             focus_distance: 1.0,
             defocus_angle: 0.0,
             movement_speed: 1.0,
-            rotation_scale: Vector3::new(0.2, 0.1, 0.0),
+            rotation_scale: 0.2,
         };
 
         Self {
@@ -199,7 +199,7 @@ impl Scene {
             focus_distance: 1.0,
             defocus_angle: 0.0,
             movement_speed: 100.0,
-            rotation_scale: Vector3::new(0.2, 0.1, 0.0),
+            rotation_scale: 0.2,
         };
 
         Self {
@@ -302,7 +302,7 @@ impl Scene {
             focus_distance: 1.0,
             defocus_angle: 0.0,
             movement_speed: 2.0,
-            rotation_scale: Vector3::new(0.2, 0.1, 0.0),
+            rotation_scale: 0.2,
         };
 
         Self {
