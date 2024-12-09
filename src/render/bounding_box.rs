@@ -1,4 +1,4 @@
-use crate::rendering::interval::Interval;
+use crate::render::interval::Interval;
 use bytemuck::{Pod, Zeroable};
 use nalgebra::Point3;
 

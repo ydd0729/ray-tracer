@@ -1,4 +1,4 @@
-use crate::rendering::wgpu::Wgpu;
+use crate::render::wgpu::Wgpu;
 use getset::*;
 use wgpu::*;
 

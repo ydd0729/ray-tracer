@@ -1,5 +1,5 @@
 use crate::app::gui_state::GuiState;
-use crate::rendering::wgpu::Wgpu;
+use crate::render::wgpu::Wgpu;
 use crate::{time, FONT, FONT_NAME};
 use egui::{ClippedPrimitive, FontData, FontDefinitions, FontFamily, TexturesDelta};
 use egui_winit::EventResponse;

@@ -9,8 +9,8 @@ use crate::app::gui_state::GuiState;
 use crate::app::input::PressRecord;
 use crate::app::renderer::{Renderer, RendererParameters};
 use crate::app::scene::Scene;
-use crate::rendering::mesh::Mesh;
-use crate::rendering::wgpu::{Wgpu, WgpuTexture, WgpuTextureBindingInstruction, WgpuTextureBindingType};
+use crate::render::mesh::Mesh;
+use crate::render::wgpu::{Wgpu, WgpuTexture, WgpuTextureBindingInstruction, WgpuTextureBindingType};
 use crate::time;
 use camera::{Camera, CameraUpdateParameters};
 use cfg_if::cfg_if;
@@ -82,6 +82,7 @@ impl App {
 
         let gui_state = RefCell::new(GuiState::new(
             500,
+            1,
             32,
             CameraUpdateParameters {
                 vfov: scene_ref.camera_parameters.vfov,
@@ -414,6 +415,7 @@ impl App {
             primitives: &primitives,
             important_indices: &important_indices,
             materials: &scene.materials,
+            samples_per_frame: self.gui_state().samples_per_frame(),
         };
         let renderer = RefCell::new(Renderer::new(self.wgpu(), &render_parameter));
 

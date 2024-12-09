@@ -1,10 +1,10 @@
 use crate::math::degree_to_radian;
-use crate::rendering::primitive::Transformable;
-use crate::rendering::material::{DebugNormal, Dielectric, DiffuseLight, Lambertian, MaterialList};
-use crate::rendering::mesh::mesh_list::TransformableMeshList;
-use crate::rendering::mesh::Mesh;
-use crate::rendering::primitive::sphere::Sphere;
-use crate::rendering::primitive::{PrimitiveData, Quad};
+use crate::render::primitive::Transformable;
+use crate::render::material::{DebugNormal, Dielectric, DiffuseLight, Lambertian, MaterialList};
+use crate::render::mesh::mesh_list::TransformableMeshList;
+use crate::render::mesh::Mesh;
+use crate::render::primitive::sphere::Sphere;
+use crate::render::primitive::{PrimitiveData, Quad};
 use log::info;
 use nalgebra::{Point3, Translation3, UnitQuaternion, Vector3};
 use std::rc::Rc;

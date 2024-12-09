@@ -6,7 +6,7 @@ pub use bind_buffer::*;
 pub use index_buffer::*;
 pub use vertex_buffer::*;
 
-use crate::rendering::wgpu::Wgpu;
+use crate::render::wgpu::Wgpu;
 use getset::Getters;
 use wgpu::*;
 

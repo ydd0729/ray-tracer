@@ -5,7 +5,7 @@ pub mod transformable;
 pub use quad::*;
 pub use transformable::*;
 
-use crate::rendering::primitive::sphere::SphereData;
+use crate::render::primitive::sphere::SphereData;
 use bytemuck::{Pod, Zeroable};
 
 use super::bounding_box::BoundingBox;

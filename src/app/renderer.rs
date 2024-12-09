@@ -1,14 +1,14 @@
 use crate::app::camera::Camera;
 use crate::app::egui_renderer::EguiRenderer;
 use crate::app::gui_state::GuiState;
-use crate::rendering::bvh::build_bvh_tree;
-use crate::rendering::bvh::BvhBuildingEntry;
-use crate::rendering::bvh::BvhNode;
-use crate::rendering::material::*;
-use crate::rendering::primitive::sphere::SphereData;
-use crate::rendering::primitive::*;
-use crate::rendering::wgpu::*;
-use crate::rendering::RenderContext;
+use crate::render::bvh::build_bvh_tree;
+use crate::render::bvh::BvhBuildingEntry;
+use crate::render::bvh::BvhNode;
+use crate::render::material::*;
+use crate::render::primitive::sphere::SphereData;
+use crate::render::primitive::*;
+use crate::render::wgpu::*;
+use crate::render::RenderContext;
 use crate::time;
 use crate::RAY_TRACING_SHADER;
 use egui_winit::EventResponse;
@@ -55,6 +55,7 @@ pub struct RendererParameters<'a> {
     pub primitives: &'a [Rc<PrimitiveData>],
     pub important_indices: &'a [u32],
     pub materials: &'a MaterialList,
+    pub samples_per_frame: u32,
 }
 
 impl RendererParameters<'_> {
@@ -117,9 +118,10 @@ impl Renderer {
         let mut bvh_tree = Vec::new();
         build_bvh_tree(&mut bvh_tree, &mut bvh_building, 0, len, 0);
 
-        for (i, node) in bvh_tree.iter().enumerate() {
-            info!("{} = {:?}\n", i, node);
-        }
+        // for (i, node) in bvh_tree.iter().enumerate() {
+        //     info!("{} = {:?}\n", i, node);
+        // }
+        
         let bvh_storage_buffer = WgpuBindBuffer::new(
             &wgpu,
             "bvh storage",
@@ -233,6 +235,7 @@ impl Renderer {
             width,
             height,
             parameters.samples_per_pixel,
+            parameters.samples_per_frame,
             parameters.max_ray_bounces,
             parameters.important_indices.len() as u32,
         );
@@ -371,14 +374,24 @@ impl Renderer {
             self.should_rerender = true;
         }
 
+        if self.render_context.samples_per_frame != gui_state.samples_per_frame() {
+            self.render_context.samples_per_frame = gui_state.samples_per_frame();
+            self.should_rerender = true;
+        }
+
         if camera.take_rerender() {
             self.should_rerender = true;
         }
 
         let (width, height) = window.inner_size().into();
-        self.render_context.update(&camera, width, height);
-        self.render_context_uniform_buffer
-            .write(&wgpu, 0, bytemuck::bytes_of(&self.render_context));
+        if self.render_context.update(&camera, width, height) {
+            self.should_rerender = true;
+        }
+        
+        if self.should_rerender {
+            self.render_context_uniform_buffer
+                .write(&wgpu, 0, bytemuck::bytes_of(&self.render_context));
+        }
 
         self.egui_renderer.update(&window, delta_time, gui_state.deref_mut())
     }

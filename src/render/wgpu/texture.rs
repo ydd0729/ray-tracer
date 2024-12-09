@@ -1,5 +1,5 @@
-use crate::rendering::wgpu::Wgpu;
-use crate::rendering::wgpu::WgpuBindable;
+use crate::render::wgpu::Wgpu;
+use crate::render::wgpu::WgpuBindable;
 use getset::Getters;
 use wgpu::*;
 

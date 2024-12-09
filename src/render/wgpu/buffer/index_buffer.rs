@@ -1,5 +1,5 @@
-use crate::rendering::wgpu::buffer::WgpuBuffer;
-use crate::rendering::wgpu::{IWgpuBuffer, Wgpu};
+use crate::render::wgpu::buffer::WgpuBuffer;
+use crate::render::wgpu::{IWgpuBuffer, Wgpu};
 use getset::CopyGetters;
 use wgpu::{Buffer, BufferAddress, BufferUsages, IndexFormat};
 

@@ -59,40 +59,39 @@ fn compute_main(
     }
 
     let pixel_index = gid.x + gid.y * context.width;
-    init_random_generator(
-        pixel_index + context.width * context.height * context.sample_id
-         );
+    init_random_generator(pixel_index + context.width * context.height * context.sample_id);
 
-    var sample_color: vec3f;
-    if context.sample_id < context.samples_per_pixel {
-        var ray = get_ray(vec2f(f32(gid.x), f32(gid.y)));
-        sample_color = ray_color(&ray);
+    var sample_color = vec3(0.0, 0.0, 0.0);
+    var sample_id = context.sample_id;
+
+    // 这个 for 循环对性能影响较大，即使 samples_per_pixel = 1 ，也会使帧率 - 8
+    for (var i: u32 = 0; i < context.samples_per_frame && sample_id < context.samples_per_pixel; i++) {
+        var ray = get_ray(vec2(f32(gid.x), f32(gid.y)), sample_id);
+        sample_color += ray_color(&ray);
+        sample_id += 1u;
     }
 
-    var sample_count = f32(context.sample_id) + 1.0;
     if context.sample_id == 0 {
         pixel_color[pixel_index][0] = sample_color.x;
         pixel_color[pixel_index][1] = sample_color.y;
         pixel_color[pixel_index][2] = sample_color.z;
-    } else if context.sample_id < context.samples_per_pixel {
+    } else if context.sample_id != sample_id {
         pixel_color[pixel_index][0] += sample_color.x;
         pixel_color[pixel_index][1] += sample_color.y;
         pixel_color[pixel_index][2] += sample_color.z;
-    } else {
-        sample_count -= 1.0;
     }
 
-    let color = vec3f(
-        pixel_color[pixel_index][0] / sample_count,
-        pixel_color[pixel_index][1] / sample_count,
-        pixel_color[pixel_index][2] / sample_count
+    let color = vec3(
+        pixel_color[pixel_index][0] / f32(sample_id),
+        pixel_color[pixel_index][1] / f32(sample_id),
+        pixel_color[pixel_index][2] / f32(sample_id)
     );
 
     textureStore(surface, gid.xy, vec4(linear_to_srgb(color), 1.0));
 }
 
-fn get_ray(pixel_position: vec2f) -> Ray {
-    let offset = sample_unit_square_stratified();
+fn get_ray(pixel_position: vec2f, sample_id: u32) -> Ray {
+    let offset = sample_unit_square_stratified(sample_id);
     let pixel_world_position = context.pixel_origin
                                 + (pixel_position.x + offset.x) * context.pixel_delta_u
                                 + (pixel_position.y + offset.y) * context.pixel_delta_v;
@@ -257,7 +256,8 @@ struct RenderContext {
     sample_id: u32,
     camera_position: vec3f,
     ray_bounces: u32,
-    important_index_len: u32
+    important_index_len: u32,
+    samples_per_frame: u32
 }
 /*------------------------------------------ BVH ------------------------------------------------*/
 
@@ -1070,8 +1070,8 @@ fn sample_unit_disk() -> vec2<f32> {
     return vec2<f32>(cos(phi), sin(phi)) * r;
 }
 
-fn sample_unit_square_stratified() -> vec2<f32> {
-    if context.sample_id < context.sample_grid_num { // 分层采样
+fn sample_unit_square_stratified(sample_id: u32) -> vec2<f32> {
+    if sample_id < context.sample_grid_num { // 分层采样
         return vec2<f32>(
             f32(context.sample_position.x) + randomf(),
             f32(context.sample_position.y) + randomf()

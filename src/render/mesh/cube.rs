@@ -1,6 +1,6 @@
-use crate::rendering::material::MaterialHandle;
-use crate::rendering::primitive::quad::Quad;
-use crate::rendering::primitive::transformable::Transformable;
+use crate::render::material::MaterialHandle;
+use crate::render::primitive::quad::Quad;
+use crate::render::primitive::transformable::Transformable;
 use super::mesh_list::TransformableMeshList;
 use nalgebra::*;
 

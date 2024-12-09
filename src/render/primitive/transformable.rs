@@ -1,4 +1,4 @@
-use crate::rendering::mesh::Mesh;
+use crate::render::mesh::Mesh;
 use nalgebra::*;
 
 pub trait Transformable {

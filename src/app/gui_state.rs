@@ -10,6 +10,8 @@ pub struct GuiState {
     #[getset(get_copy = "pub")]
     pub samples_per_pixel: u32,
     #[getset(get_copy = "pub")]
+    pub samples_per_frame: u32,
+    #[getset(get_copy = "pub")]
     pub max_ray_bounces: u32,
     #[getset(get = "pub")]
     pub camera_update_parameters: CameraUpdateParameters,
@@ -18,9 +20,10 @@ pub struct GuiState {
 }
 
 impl GuiState {
-    pub fn new(samples_per_pixel: u32, max_ray_bounces: u32, camera_update_parameters: CameraUpdateParameters) -> Self {
+    pub fn new(samples_per_pixel: u32, samples_per_frame: u32, max_ray_bounces: u32, camera_update_parameters: CameraUpdateParameters) -> Self {
         Self {
             samples_per_pixel,
+            samples_per_frame,
             max_ray_bounces,
             camera_update_parameters,
             render_status: Default::default(),
@@ -107,6 +110,10 @@ impl GuiState {
         egui::Grid::new("sampling").min_col_width(160.0).show(ui, |ui| {
             ui.label("Samples");
             ui.add(egui::Slider::new(&mut self.samples_per_pixel, 1..=50000));
+            ui.end_row();
+
+            ui.label("Samples Per Frame");
+            ui.add(egui::Slider::new(&mut self.samples_per_frame, 1..=10));
             ui.end_row();
 
             ui.label("Max Ray Bounces");

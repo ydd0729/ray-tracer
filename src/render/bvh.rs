@@ -1,4 +1,4 @@
-use crate::rendering::primitive::PrimitiveData;
+use crate::render::primitive::PrimitiveData;
 use bytemuck::{Pod, Zeroable};
 use std::rc::Rc;
 

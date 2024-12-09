@@ -1,6 +1,6 @@
-use crate::rendering::wgpu::buffer::WgpuBuffer;
-use crate::rendering::wgpu::{IWgpuBuffer, Wgpu};
-use crate::rendering::Vertex;
+use crate::render::wgpu::buffer::WgpuBuffer;
+use crate::render::wgpu::{IWgpuBuffer, Wgpu};
+use crate::render::Vertex;
 use getset::{CopyGetters, Getters};
 use wgpu::{Buffer, BufferAddress, BufferUsages, VertexBufferLayout, VertexStepMode};
 

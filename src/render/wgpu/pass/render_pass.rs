@@ -1,7 +1,7 @@
-use crate::rendering::wgpu::bind_group::WgpuBindGroup;
-use crate::rendering::wgpu::index_buffer::WgpuIndexBuffer;
-use crate::rendering::wgpu::vertex_buffer::WgpuVertexBuffer;
-use crate::rendering::wgpu::{IWgpuBuffer, Wgpu};
+use crate::render::wgpu::bind_group::WgpuBindGroup;
+use crate::render::wgpu::index_buffer::WgpuIndexBuffer;
+use crate::render::wgpu::vertex_buffer::WgpuVertexBuffer;
+use crate::render::wgpu::{IWgpuBuffer, Wgpu};
 use wgpu::*;
 
 pub struct WgpuRenderPass {

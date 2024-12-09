@@ -1,7 +1,7 @@
-use crate::rendering::material::MaterialHandle;
-use crate::rendering::primitive::transformable::Transformable;
-use crate::rendering::primitive::PrimitiveData;
-use crate::rendering::{bounding_box::BoundingBox, mesh::Mesh};
+use crate::render::material::MaterialHandle;
+use crate::render::primitive::transformable::Transformable;
+use crate::render::primitive::PrimitiveData;
+use crate::render::{bounding_box::BoundingBox, mesh::Mesh};
 use bytemuck::{Pod, Zeroable};
 use nalgebra::{Point3, Scale3, Translation3, UnitQuaternion, Vector3};
 use std::rc::Rc;

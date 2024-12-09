@@ -1,6 +1,6 @@
 use super::Mesh;
-use crate::rendering::primitive::transformable::Transformable;
-use crate::rendering::primitive::{PrimitiveData, TransformableMesh};
+use crate::render::primitive::transformable::Transformable;
+use crate::render::primitive::{PrimitiveData, TransformableMesh};
 use nalgebra::*;
 use std::rc::Rc;
 

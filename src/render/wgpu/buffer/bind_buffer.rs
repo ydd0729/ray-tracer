@@ -1,5 +1,5 @@
-use crate::rendering::wgpu::buffer::WgpuBuffer;
-use crate::rendering::wgpu::{IWgpuBuffer, Wgpu, WgpuBindable};
+use crate::render::wgpu::buffer::WgpuBuffer;
+use crate::render::wgpu::{IWgpuBuffer, Wgpu, WgpuBindable};
 use getset::CopyGetters;
 use wgpu::{
     BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferAddress,

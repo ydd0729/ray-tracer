@@ -11,7 +11,7 @@ cfg_if! {
 
 pub mod app;
 mod math;
-pub mod rendering;
+pub mod render;
 
 lazy_static! {
     static ref FONT: &'static [u8] = include_bytes!("../asset/font/SourceSans3-Medium.otf");

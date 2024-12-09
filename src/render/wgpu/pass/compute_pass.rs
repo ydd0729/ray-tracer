@@ -1,4 +1,4 @@
-use crate::rendering::wgpu::{Wgpu, WgpuBindGroup};
+use crate::render::wgpu::{Wgpu, WgpuBindGroup};
 use wgpu::*;
 
 pub struct WgpuComputePass {
